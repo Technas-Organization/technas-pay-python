@@ -7,7 +7,7 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from technas_pay import AsyncTechnasPay, Event, WebhookHandlers, WebhookVerificationError, retry_reference
+from technas_pay import AsyncTechnasPay, Event, WebhookHandlers, WebhookVerificationError, retry_reference, to_app_json
 
 app = FastAPI()
 pay = AsyncTechnasPay()  # lit TECHNAS_PAY_SECRET au premier appel ; côté serveur uniquement
@@ -52,3 +52,30 @@ async def technas_webhook(request: Request):
         raise HTTPException(status_code=400, detail="invalid_signature")
     # Une erreur de vos fonctions remonte en 500 : Technas relivrera l'événement.
     return result.body
+
+
+# --- Les deux routes que lit une app Flutter (technas_pay_flutter, TechnasPayHttpBackend) ---
+# Authentifiez VOTRE utilisateur ici et vérifiez que la commande est la sienne.
+
+
+@app.post("/technas-pay/payments")
+async def app_start_payment(body: dict):
+    order_id = str(body.get("orderId", ""))
+    order = ORDERS.get(order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="order_not_found")
+    payment = await pay.ask_for_payment(
+        amount=order["amount"],  # relu en base, jamais envoyé par l'app
+        reference=retry_reference(order_id, order["attempt"]),  # même essai tant qu'il n'a pas expiré
+        customer={"email": "awa@exemple.tg", "name": "Awa Mensah"},
+        return_url="https://votre-site.example/merci",
+    )
+    order["payment_id"] = payment.id
+    return {"payment": to_app_json(payment)}
+
+
+@app.get("/technas-pay/payments/{payment_id}")
+async def app_read_payment(payment_id: str):
+    if not any(o["payment_id"] == payment_id for o in ORDERS.values()):
+        raise HTTPException(status_code=404, detail="payment_not_found")
+    return {"payment": to_app_json(await pay.get_payment(payment_id))}

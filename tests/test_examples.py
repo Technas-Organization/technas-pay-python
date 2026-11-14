@@ -34,6 +34,28 @@ def test_fastapi():
     assert bad.status_code == 400
 
 
+def test_fastapi_routes_de_l_app(monkeypatch):
+    pytest.importorskip("fastapi")
+    import httpx
+    from fastapi.testclient import TestClient
+
+    from .fake_gateway import BASE, FakeGateway
+
+    mod = _fresh("examples.fastapi_app")
+    gw = FakeGateway()
+    from technas_pay import AsyncTechnasPay
+
+    mod.pay = AsyncTechnasPay(SECRET, base_url=BASE, http_client=httpx.AsyncClient(transport=gw.async_transport()))
+    client = TestClient(mod.app)
+    started = client.post("/technas-pay/payments", json={"orderId": "42"}).json()["payment"]
+    assert started["status"] == "pending" and started["checkout_url"]
+    assert "commission" not in started
+    assert client.post("/technas-pay/payments", json={"orderId": "42"}).json()["payment"]["id"] == started["id"]
+    read = client.get(f"/technas-pay/payments/{started['id']}").json()["payment"]
+    assert read["id"] == started["id"]
+    assert client.get("/technas-pay/payments/autre").status_code == 404
+
+
 def test_flask():
     pytest.importorskip("flask")
     mod = _fresh("examples.flask_app")

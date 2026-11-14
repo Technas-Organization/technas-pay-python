@@ -26,6 +26,7 @@ from .models import (
     currency_for_country,
     is_final,
     retry_reference,
+    to_app_json,
 )
 from .webhooks import SIGNATURE_HEADER, Event, WebhookHandlers, sign, verify_signature
 
@@ -36,6 +37,6 @@ __all__ = [
     "CURRENCY_BY_COUNTRY", "Balance", "CountryRules", "FxCountry", "FxMode", "Payment", "PaymentFx",
     "PayoutDestination", "PayoutDestinationState", "PayoutDestinationView", "PayoutNetwork", "Refund",
     "Settlement", "TopUp", "TransactionPage",
-    "can_retry", "currency_for_country", "is_final", "retry_reference",
+    "can_retry", "currency_for_country", "is_final", "retry_reference", "to_app_json",
     "SIGNATURE_HEADER", "Event", "WebhookHandlers", "sign", "verify_signature",
 ]
