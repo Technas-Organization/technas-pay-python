@@ -10,6 +10,8 @@ from .errors import ErrorDetails, TechnasPayError, WebhookVerificationError
 from .models import (
     CURRENCY_BY_COUNTRY,
     Balance,
+    CardAccount,
+    CardOnboardingLink,
     CountryRules,
     FxCountry,
     FxMode,
@@ -36,7 +38,7 @@ __all__ = [
     "AppOrder", "AppRequest", "AppResponse", "AppRoutes",
     "AsyncTechnasPay", "TechnasPay", "TestWebhook", "WebhookResult",
     "ErrorDetails", "TechnasPayError", "WebhookVerificationError",
-    "CURRENCY_BY_COUNTRY", "Balance", "CountryRules", "FxCountry", "FxMode", "Payment", "PaymentFx",
+    "CURRENCY_BY_COUNTRY", "Balance", "CardAccount", "CardOnboardingLink", "CountryRules", "FxCountry", "FxMode", "Payment", "PaymentFx",
     "PayoutDestination", "PayoutDestinationState", "PayoutDestinationView", "PayoutNetwork", "Refund",
     "Settlement", "TopUp", "TransactionPage",
     "can_retry", "currency_for_country", "is_final", "retry_reference", "to_app_json",

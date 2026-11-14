@@ -1,6 +1,6 @@
 # technas-pay (Python)
 
-> SDK Python (côté serveur : FastAPI, Django, Flask…) pour encaisser du mobile money en Afrique via Technas Pay, rembourser et recharger son solde. Clients `TechnasPay` (sync) et `AsyncTechnasPay` (async). Montant seul, en F CFA : la devise (XOF ou XAF) suit le pays du client.
+> SDK Python (côté serveur : FastAPI, Django, Flask…) pour encaisser du mobile money en Afrique et des paiements par carte via Technas Pay, rembourser et recharger son solde. Clients `TechnasPay` (sync) et `AsyncTechnasPay` (async). Montant seul, en F CFA : la devise (XOF ou XAF) suit le pays du client.
 
 Agents de code : lisez d'abord AGENTS.md (méthodes, champs obligatoires, sécurité, webhooks, erreurs).
 

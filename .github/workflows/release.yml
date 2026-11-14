@@ -2,9 +2,12 @@ name: Release (Nexus Technas)
 
 # Publie sur le Nexus PyPI privé de Technas à chaque tag vX.Y.Z.
 # La publication sur pypi.org public n'est PAS branchée : elle attend l'accord de Jonas.
+# Depuis que le dépôt est PUBLIC (15/11/2026), les runners du cluster (seuls à joindre le Nexus)
+# ne l'acceptent plus : ce job ne part plus sur une étiquette, il resterait en attente pour
+# toujours. Les versions s'installent depuis GitHub (`pip install git+https://…@vX.Y.Z`) ; la
+# publication sur PyPI attend l'accord de Jonas.
 on:
-  push:
-    tags: ["v*.*.*"]
+  workflow_dispatch:
 
 jobs:
   publish:

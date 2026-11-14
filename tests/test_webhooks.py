@@ -69,6 +69,8 @@ def test_type_inconnu_acquitte():
      lambda e: e.conversion.credited_amount == 441),
     ("fx_mode.updated", {"mode": "local", "previous_mode": "none", "markup_pct": 0, "home_currency": "XOF"}, "on_fx_mode_updated",
      lambda e: e.fx.previous_mode == "none"),
+    ("card_account.updated", {"status": "enabled", "can_accept_payments": True}, "on_card_account_updated",
+     lambda e: e.card_account.can_accept_payments),
     ("payment.expired", {"id": "p", "reference": "r-1", "status": "expired", "amount": 1, "currency": "XOF"}, "on_expired",
      lambda e: e.payment.status == "expired"),
     ("payment.failed", {"id": "p", "reference": "r-1", "status": "failed", "amount": 1, "currency": "XOF"}, "on_failed",
