@@ -1,6 +1,10 @@
 # technas-pay (Python)
 
-Encaissez des paiements mobile money via Technas depuis un serveur Python : FastAPI, Django, Flask, ou tout autre framework.
+Encaissez des paiements mobile money et par carte via Technas depuis un serveur Python : FastAPI, Django, Flask, ou tout autre framework.
+
+**Technas Pay réunit le mobile money et la carte dans un seul SDK, du serveur jusqu'à l'app Flutter.** 2 % par paiement réussi, sans abonnement, et une clé de test sans papier pour commencer.
+
+Devises et pays, pièces demandées, versements, comparaison avec les autres prestataires : [le hub Technas Pay](https://github.com/Technas-Organization/technas-pay).
 
 Vous intégrez avec un assistant de code (Codex, Claude Code…) ? Dites-lui de lire [AGENTS.md](AGENTS.md), livré dans le paquet avec [llms.txt](llms.txt).
 
