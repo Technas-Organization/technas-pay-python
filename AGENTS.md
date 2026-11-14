@@ -13,12 +13,9 @@ Même API, mêmes règles que le SDK TypeScript `@technas/pay-next` : seuls les 
 ## Installer
 
 ```bash
-pip install technas-pay \
-  --index-url https://nexus.technas.fr/repository/technas-pypi-hosted/simple/ \
-  --extra-index-url https://pypi.org/simple/
+pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.4.0"
 ```
 
-(Depuis un pod du cluster Technas : index `http://nexus.technas-infra.svc.cluster.local:8081/repository/technas-pypi-hosted/simple/` avec `--trusted-host nexus.technas-infra.svc.cluster.local`.)
 
 ## Quel client
 
