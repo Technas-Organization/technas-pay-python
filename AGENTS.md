@@ -6,7 +6,7 @@ Même API, mêmes règles que le SDK TypeScript `@technas/pay-next` : seuls les 
 
 ## Avant de commencer
 
-1. Python 3.10+. Application web côté serveur (FastAPI, Django, Flask, Starlette, Litestar…). **Jamais** dans une app mobile, un navigateur ou un script distribué : le secret y serait exposé.
+1. Python 3.9+. Application web côté serveur (FastAPI, Django, Flask, Starlette, Litestar…). **Jamais** dans une app mobile, un navigateur ou un script distribué : le secret y serait exposé.
 2. `TECHNAS_PAY_SECRET` doit exister dans l'environnement serveur (ou `.env`, ignoré par git) et commencer par `tps_test_`. S'il manque, demandez-le à l'utilisateur. **N'en inventez pas, ne l'affichez pas, ne le commitez pas, ne le loggez pas.**
 3. Repérez le modèle de commande : un identifiant, un montant calculé côté serveur, un état « payée », un numéro de tentative (entier, 1 par défaut) et une colonne pour garder `payment.id` (nécessaire pour rembourser).
 

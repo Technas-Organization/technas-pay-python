@@ -13,12 +13,15 @@ jobs:
     # Dépôt PUBLIC : machines GitHub, gratuites et isolées. Jamais les runners ARC du cluster ici :
     # une PR venue d'un fork y exécuterait son code à côté du Nexus et de Vault (décision de
     # Jonas, 15/11/2026). Ces tests n'ont besoin de rien chez nous (faux serveurs).
-    runs-on: ubuntu-latest
+    # Python 3.9 n'existe plus sur la machine GitHub la plus récente : on le teste sur Ubuntu 22.04.
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.10", "3.13"]
+        include:
+          - { python: "3.9", os: ubuntu-22.04 }
+          - { python: "3.13", os: ubuntu-latest }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
