@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "Encaisser des paiements mobile money (zone franc CFA et au-delà) via Technas, depuis un serveur Python."
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 authors = [{ name = "Technas" }]
 dependencies = ["httpx>=0.24,<1"]
 keywords = ["technas", "payments", "mobile money", "fcfa", "xof", "xaf", "webhook"]
