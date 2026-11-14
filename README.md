@@ -12,7 +12,7 @@ C'est la même API que le SDK TypeScript [`@technas/pay-next`](https://github.co
 pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.4.0"
 ```
 
-Seule dépendance : `httpx`. Python 3.9 ou plus récent.
+Seule dépendance : `httpx`. Python 3.10 ou plus récent.
 
 Technas vous remet **un secret**. Mettez-le dans les variables d'environnement du serveur :
 
