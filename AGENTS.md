@@ -57,6 +57,10 @@ Créez UNE instance au niveau du module (`pay = TechnasPay()`) : elle lit `TECHN
 3. Route webhook `POST /api/technas-pay` : lisez le corps **brut**, appelez `pay.handle_webhook(raw, request.headers.get("X-Technas-Payment-Signature"), HANDLERS)`. `WebhookVerificationError` → réponse 400. Copiez l'exemple de votre framework dans `examples/`.
 4. Ajoutez un test qui poste `pay.create_test_webhook(...)` sur cette route (voir `tests/test_examples.py`), puis lancez-le.
 
+## App mobile (Flutter)
+
+Ne réécrivez pas de routes : `pay.app_routes(authorize=..., resolve_order=..., return_url=..., webhooks=...)`, puis `.fastapi_router()`, `.flask_blueprint()` ou `.django_view()`. `resolve_order(order_id, user)` relit la commande EN BASE et rend `None` si elle n'est pas à cet utilisateur. N'y mettez jamais un montant reçu de l'app. Côté app : `TechnasPayClient(baseUrl: '.../api/technas-pay')`.
+
 ## Obligatoire
 
 - **`amount`** : un `int` en unité principale (`5000` = 5 000 FCFA, jamais × 100), calculé côté serveur. Un `float` est refusé (`invalid_amount`) avant tout appel.

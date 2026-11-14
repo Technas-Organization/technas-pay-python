@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0 — 2026-11-15
+
+`pay.app_routes(authorize=, resolve_order=, return_url=, webhooks=)` : les routes toutes faites que lit `technas_pay_flutter`, avec `.fastapi_router()`, `.flask_blueprint()`, `.django_view()` et `.handle()`. Client sync ou async, crochets sync ou async. Essais expirés sautés automatiquement, propriété de la commande vérifiée à chaque lecture. Contrat partagé `contract/app-contract.v1.json` (13 cas), livré dans la roue.
+
 ## 0.2.0 — 2026-11-14
 
 `to_app_json(payment)` : la vue sans secret qu'un backend renvoie à son app (contrat de `technas_pay_flutter`). Exemple FastAPI : routes `POST /technas-pay/payments` et `GET /technas-pay/payments/{id}`, testées.

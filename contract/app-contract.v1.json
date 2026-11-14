@@ -1,0 +1,608 @@
+{
+  "name": "technas-pay-app",
+  "version": 1,
+  "doc": "Contrat entre une app (technas_pay_flutter, TechnasPayClient) et les routes toutes faites des SDK serveur Technas Pay. Les chemins sont relatifs au préfixe de montage (ex. /api/technas-pay). Fichier copié À L'IDENTIQUE dans technas-pay-node, technas-pay-python et technas-pay-dart : chaque dépôt rejoue tous les cas. 'message' est un texte libre, jamais comparé. 'user' : l'utilisateur rendu par authorize (null = non authentifié). 'orders' : ce que resolveOrder rend pour (orderId, user) ; absent = commande inconnue ou d'un autre. 'gateway' : réponses successives de pay-api.technas.fr. Le webhook (POST /webhook, signé) est testé à part : sa signature dépend de l'heure.",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/methods?orderId=",
+      "auth": true,
+      "response": "{amount, currency, methods:[{method, available, reason}]}"
+    },
+    {
+      "method": "POST",
+      "path": "/payments",
+      "auth": true,
+      "body": "{orderId}",
+      "response": "{payment: toAppJson}"
+    },
+    {
+      "method": "GET",
+      "path": "/payments/{id}",
+      "auth": true,
+      "response": "{payment: toAppJson}"
+    },
+    {
+      "method": "POST",
+      "path": "/webhook",
+      "auth": false,
+      "signature": "X-Technas-Payment-Signature",
+      "response": "{received:true} | 400 {error:'invalid_signature'}"
+    }
+  ],
+  "errors": "{code, message, retryable} ; 400 invalid_request, 401 unauthorized, 404 order_not_found | payment_not_found | not_found, 409/4xx code de Technas transmis, 502 Technas injoignable ou en panne (retryable true)",
+  "cases": [
+    {
+      "name": "démarrer : premier essai",
+      "request": {
+        "method": "POST",
+        "path": "/payments",
+        "body": {
+          "orderId": "42"
+        }
+      },
+      "user": "u1",
+      "orders": {
+        "42": {
+          "amount": 5000,
+          "customer": {
+            "email": "awa@exemple.tg",
+            "name": "Awa Mensah"
+          }
+        }
+      },
+      "gateway": [
+        {
+          "status": 201,
+          "body": {
+            "id": "pay_1",
+            "reference": "42-1",
+            "amount": 5000,
+            "currency": null,
+            "commission": 100,
+            "net_amount": 4900,
+            "status": "pending",
+            "checkout_url": "https://pay-api.technas.fr/checkout/pay_1",
+            "metadata": {},
+            "test_mode": true,
+            "created_at": "2026-11-15T10:00:00Z",
+            "expires_at": "2026-11-15T11:00:00Z"
+          }
+        }
+      ],
+      "expect_gateway": [
+        {
+          "method": "POST",
+          "path": "/v1/payments",
+          "body_includes": {
+            "amount": 5000,
+            "reference": "42-1"
+          }
+        }
+      ],
+      "expect": {
+        "status": 200,
+        "body": {
+          "payment": {
+            "id": "pay_1",
+            "reference": "42-1",
+            "status": "pending",
+            "checkout_url": "https://pay-api.technas.fr/checkout/pay_1",
+            "amount": 5000,
+            "currency": null,
+            "expires_at": "2026-11-15T11:00:00Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "démarrer : les essais expirés sont sautés (une référence = un essai)",
+      "request": {
+        "method": "POST",
+        "path": "/payments",
+        "body": {
+          "orderId": "42"
+        }
+      },
+      "user": "u1",
+      "orders": {
+        "42": {
+          "amount": 5000,
+          "customer": {
+            "email": "awa@exemple.tg",
+            "name": "Awa Mensah"
+          }
+        }
+      },
+      "gateway": [
+        {
+          "status": 409,
+          "body": {
+            "code": "payment_expired",
+            "message": "m"
+          }
+        },
+        {
+          "status": 409,
+          "body": {
+            "code": "payment_expired",
+            "message": "m"
+          }
+        },
+        {
+          "status": 201,
+          "body": {
+            "id": "pay_3",
+            "reference": "42-3",
+            "amount": 5000,
+            "currency": null,
+            "commission": 100,
+            "net_amount": 4900,
+            "status": "pending",
+            "checkout_url": "https://pay-api.technas.fr/checkout/pay_1",
+            "metadata": {},
+            "test_mode": true,
+            "created_at": "2026-11-15T10:00:00Z",
+            "expires_at": "2026-11-15T11:00:00Z"
+          }
+        }
+      ],
+      "expect_gateway": [
+        {
+          "method": "POST",
+          "path": "/v1/payments",
+          "body_includes": {
+            "reference": "42-1"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/v1/payments",
+          "body_includes": {
+            "reference": "42-2"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/v1/payments",
+          "body_includes": {
+            "reference": "42-3"
+          }
+        }
+      ],
+      "expect": {
+        "status": 200,
+        "body": {
+          "payment": {
+            "id": "pay_3",
+            "reference": "42-3",
+            "status": "pending",
+            "checkout_url": "https://pay-api.technas.fr/checkout/pay_1",
+            "amount": 5000,
+            "currency": null,
+            "expires_at": "2026-11-15T11:00:00Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "démarrer : le montant ne vient jamais du téléphone",
+      "request": {
+        "method": "POST",
+        "path": "/payments",
+        "body": {
+          "orderId": "42",
+          "amount": 1
+        }
+      },
+      "user": "u1",
+      "orders": {
+        "42": {
+          "amount": 5000,
+          "customer": {
+            "email": "awa@exemple.tg",
+            "name": "Awa Mensah"
+          }
+        }
+      },
+      "gateway": [
+        {
+          "status": 201,
+          "body": {
+            "id": "pay_1",
+            "reference": "42-1",
+            "amount": 5000,
+            "currency": null,
+            "commission": 100,
+            "net_amount": 4900,
+            "status": "pending",
+            "checkout_url": "https://pay-api.technas.fr/checkout/pay_1",
+            "metadata": {},
+            "test_mode": true,
+            "created_at": "2026-11-15T10:00:00Z",
+            "expires_at": "2026-11-15T11:00:00Z"
+          }
+        }
+      ],
+      "expect_gateway": [
+        {
+          "method": "POST",
+          "path": "/v1/payments",
+          "body_includes": {
+            "amount": 5000
+          }
+        }
+      ],
+      "expect": {
+        "status": 200,
+        "body": {
+          "payment": {
+            "id": "pay_1",
+            "reference": "42-1",
+            "status": "pending",
+            "checkout_url": "https://pay-api.technas.fr/checkout/pay_1",
+            "amount": 5000,
+            "currency": null,
+            "expires_at": "2026-11-15T11:00:00Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "démarrer : sans authentification",
+      "request": {
+        "method": "POST",
+        "path": "/payments",
+        "body": {
+          "orderId": "42"
+        }
+      },
+      "user": null,
+      "orders": {
+        "42": {
+          "amount": 5000,
+          "customer": {
+            "email": "awa@exemple.tg",
+            "name": "Awa Mensah"
+          }
+        }
+      },
+      "gateway": [],
+      "expect_gateway": [],
+      "expect": {
+        "status": 401,
+        "body": {
+          "code": "unauthorized",
+          "retryable": false
+        }
+      }
+    },
+    {
+      "name": "démarrer : commande inconnue ou d'un autre",
+      "request": {
+        "method": "POST",
+        "path": "/payments",
+        "body": {
+          "orderId": "99"
+        }
+      },
+      "user": "u1",
+      "orders": {
+        "42": {
+          "amount": 5000,
+          "customer": {
+            "email": "awa@exemple.tg",
+            "name": "Awa Mensah"
+          }
+        }
+      },
+      "gateway": [],
+      "expect_gateway": [],
+      "expect": {
+        "status": 404,
+        "body": {
+          "code": "order_not_found",
+          "retryable": false
+        }
+      }
+    },
+    {
+      "name": "démarrer : orderId absent",
+      "request": {
+        "method": "POST",
+        "path": "/payments",
+        "body": {}
+      },
+      "user": "u1",
+      "orders": {
+        "42": {
+          "amount": 5000,
+          "customer": {
+            "email": "awa@exemple.tg",
+            "name": "Awa Mensah"
+          }
+        }
+      },
+      "gateway": [],
+      "expect_gateway": [],
+      "expect": {
+        "status": 400,
+        "body": {
+          "code": "invalid_request",
+          "retryable": false
+        }
+      }
+    },
+    {
+      "name": "démarrer : refus de Technas transmis tel quel",
+      "request": {
+        "method": "POST",
+        "path": "/payments",
+        "body": {
+          "orderId": "42"
+        }
+      },
+      "user": "u1",
+      "orders": {
+        "42": {
+          "amount": 5000,
+          "customer": {
+            "email": "awa@exemple.tg",
+            "name": "Awa Mensah"
+          }
+        }
+      },
+      "gateway": [
+        {
+          "status": 409,
+          "body": {
+            "code": "country_not_allowed",
+            "message": "m"
+          }
+        }
+      ],
+      "expect_gateway": [
+        {
+          "method": "POST",
+          "path": "/v1/payments"
+        }
+      ],
+      "expect": {
+        "status": 409,
+        "body": {
+          "code": "country_not_allowed",
+          "retryable": false
+        }
+      }
+    },
+    {
+      "name": "démarrer : Technas en panne → 502 rejouable",
+      "request": {
+        "method": "POST",
+        "path": "/payments",
+        "body": {
+          "orderId": "42"
+        }
+      },
+      "user": "u1",
+      "orders": {
+        "42": {
+          "amount": 5000,
+          "customer": {
+            "email": "awa@exemple.tg",
+            "name": "Awa Mensah"
+          }
+        }
+      },
+      "gateway": [
+        {
+          "status": 503,
+          "body": null
+        }
+      ],
+      "expect_gateway": [
+        {
+          "method": "POST",
+          "path": "/v1/payments"
+        }
+      ],
+      "expect": {
+        "status": 502,
+        "body": {
+          "code": "request_failed",
+          "retryable": true
+        }
+      }
+    },
+    {
+      "name": "lire : paiement de l'utilisateur",
+      "request": {
+        "method": "GET",
+        "path": "/payments/pay_1"
+      },
+      "user": "u1",
+      "orders": {
+        "42": {
+          "amount": 5000,
+          "customer": {
+            "email": "awa@exemple.tg",
+            "name": "Awa Mensah"
+          }
+        }
+      },
+      "gateway": [
+        {
+          "status": 200,
+          "body": {
+            "id": "pay_1",
+            "reference": "42-1",
+            "amount": 5000,
+            "currency": null,
+            "commission": 100,
+            "net_amount": 4900,
+            "status": "completed",
+            "checkout_url": "https://pay-api.technas.fr/checkout/pay_1",
+            "metadata": {},
+            "test_mode": true,
+            "created_at": "2026-11-15T10:00:00Z",
+            "expires_at": "2026-11-15T11:00:00Z"
+          }
+        }
+      ],
+      "expect_gateway": [
+        {
+          "method": "GET",
+          "path": "/v1/payments/pay_1"
+        }
+      ],
+      "expect": {
+        "status": 200,
+        "body": {
+          "payment": {
+            "id": "pay_1",
+            "reference": "42-1",
+            "status": "completed",
+            "checkout_url": "https://pay-api.technas.fr/checkout/pay_1",
+            "amount": 5000,
+            "currency": null,
+            "expires_at": "2026-11-15T11:00:00Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "lire : paiement d'une commande qui n'est pas la sienne",
+      "request": {
+        "method": "GET",
+        "path": "/payments/pay_9"
+      },
+      "user": "u1",
+      "orders": {
+        "42": {
+          "amount": 5000,
+          "customer": {
+            "email": "awa@exemple.tg",
+            "name": "Awa Mensah"
+          }
+        }
+      },
+      "gateway": [
+        {
+          "status": 200,
+          "body": {
+            "id": "pay_9",
+            "reference": "99-1",
+            "amount": 5000,
+            "currency": null,
+            "commission": 100,
+            "net_amount": 4900,
+            "status": "pending",
+            "checkout_url": "https://pay-api.technas.fr/checkout/pay_1",
+            "metadata": {},
+            "test_mode": true,
+            "created_at": "2026-11-15T10:00:00Z",
+            "expires_at": "2026-11-15T11:00:00Z"
+          }
+        }
+      ],
+      "expect_gateway": [
+        {
+          "method": "GET",
+          "path": "/v1/payments/pay_9"
+        }
+      ],
+      "expect": {
+        "status": 404,
+        "body": {
+          "code": "payment_not_found",
+          "retryable": false
+        }
+      }
+    },
+    {
+      "name": "lire : sans authentification",
+      "request": {
+        "method": "GET",
+        "path": "/payments/pay_1"
+      },
+      "user": null,
+      "orders": {
+        "42": {
+          "amount": 5000,
+          "customer": {
+            "email": "awa@exemple.tg",
+            "name": "Awa Mensah"
+          }
+        }
+      },
+      "gateway": [],
+      "expect_gateway": [],
+      "expect": {
+        "status": 401,
+        "body": {
+          "code": "unauthorized",
+          "retryable": false
+        }
+      }
+    },
+    {
+      "name": "moyens ouverts pour une commande",
+      "request": {
+        "method": "GET",
+        "path": "/methods",
+        "query": {
+          "orderId": "42"
+        }
+      },
+      "user": "u1",
+      "orders": {
+        "42": {
+          "amount": 5000,
+          "customer": {
+            "email": "awa@exemple.tg",
+            "name": "Awa Mensah"
+          }
+        }
+      },
+      "gateway": [],
+      "expect_gateway": [],
+      "expect": {
+        "status": 200,
+        "body": {
+          "amount": 5000,
+          "currency": null,
+          "methods": [
+            {
+              "method": "mobile_money",
+              "available": true,
+              "reason": null
+            },
+            {
+              "method": "card",
+              "available": false,
+              "reason": "not_enabled"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "route inconnue",
+      "request": {
+        "method": "GET",
+        "path": "/nope"
+      },
+      "user": "u1",
+      "orders": {},
+      "gateway": [],
+      "expect_gateway": [],
+      "expect": {
+        "status": 404,
+        "body": {
+          "code": "not_found",
+          "retryable": false
+        }
+      }
+    }
+  ]
+}
