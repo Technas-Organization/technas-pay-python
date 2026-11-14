@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "technas-pay"
+dynamic = ["version"]
+description = "Encaisser des paiements mobile money (zone franc CFA et au-delà) via Technas, depuis un serveur Python."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+authors = [{ name = "Technas" }]
+dependencies = ["httpx>=0.24,<1"]
+keywords = ["technas", "payments", "mobile money", "fcfa", "xof", "xaf", "webhook"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Framework :: FastAPI",
+  "Framework :: Django",
+  "Framework :: Flask",
+  "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7", "pytest-asyncio>=0.21", "fastapi>=0.100", "flask>=2.3", "django>=4.2"]
+
+[project.urls]
+Homepage = "https://github.com/Technas-Organization/technas-pay-python"
+
+[tool.hatch.version]
+path = "src/technas_pay/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/technas_pay"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"AGENTS.md" = "technas_pay/AGENTS.md"
+"llms.txt" = "technas_pay/llms.txt"
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "examples", "README.md", "AGENTS.md", "llms.txt", "LICENSE", "CHANGELOG.md"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
