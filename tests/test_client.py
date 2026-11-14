@@ -13,6 +13,7 @@ from technas_pay import (
     currency_for_country,
     is_final,
     retry_reference,
+    to_app_json,
 )
 
 from .fake_gateway import API_KEY, BASE, SECRET, WEBHOOK_SECRET, FakeGateway
@@ -220,3 +221,8 @@ async def test_client_async_meme_surface(gw):
 def test_les_deux_clients_ont_la_meme_surface():
     public = lambda cls: {n for n in dir(cls) if not n.startswith("_")} - {"close", "aclose"}
     assert public(TechnasPay) == public(AsyncTechnasPay)
+
+
+def test_to_app_json_ne_rend_que_le_necessaire(pay):
+    j = to_app_json(ask(pay))
+    assert set(j) == {"id", "reference", "status", "checkout_url", "amount", "currency", "expires_at"}

@@ -131,6 +131,20 @@ class Payment:
         )
 
 
+def to_app_json(payment: "Payment") -> Dict[str, Any]:
+    """Ce que VOTRE backend renvoie à votre app (``{"payment": to_app_json(p)}``) : ni commission,
+    ni montant net, ni métadonnées. C'est le contrat que lit ``technas_pay_flutter``."""
+    return {
+        "id": payment.id,
+        "reference": payment.reference,
+        "status": payment.status,
+        "checkout_url": payment.checkout_url,
+        "amount": payment.amount,
+        "currency": payment.currency,
+        "expires_at": payment.expires_at,
+    }
+
+
 @dataclass(frozen=True)
 class TransactionPage:
     items: List[Payment]
