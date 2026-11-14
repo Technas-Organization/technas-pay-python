@@ -90,6 +90,8 @@ Fonctions disponibles : `on_completed`, `on_failed` (pas définitif), `on_expire
 | `create_test_webhook(type, reference=, amount=, currency=)` | Webhook signé pour vos tests (secret test seulement) |
 | `simulate_test_payment(id, "completed"\|"failed"\|"expired")` | Jouer le payeur en test |
 
+Pour une app mobile : `to_app_json(payment)` est ce que votre backend lui renvoie (voir `technas_pay_flutter` et l'exemple FastAPI).
+
 Aides : `can_retry(payment)` (vrai seulement pour `expired`), `is_final(payment)`, `retry_reference(order_id, attempt)`, `currency_for_country("TG")`.
 
 ## Erreurs
