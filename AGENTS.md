@@ -13,7 +13,7 @@ Même API, mêmes règles que le SDK TypeScript `@technas/pay-next` : seuls les 
 ## Installer
 
 ```bash
-pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.4.0"
+pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.4.1"
 ```
 
 
