@@ -1,0 +1,268 @@
+"""Routes toutes faites pour une app (technas_pay_flutter, ``TechnasPayClient``).
+
+Contrat : ``contract/app-contract.v1.json``, rejoué par les tests de ce paquet ET par ceux du
+client Flutter et des SDK Node et Dart.
+
+Vous ne fournissez que deux crochets (sync ou async) :
+
+- ``authorize(request)`` : VOTRE authentification ; rend l'utilisateur, ou ``None`` (401) ;
+- ``resolve_order(order_id, user)`` : la commande relue EN BASE (montant, client), ou ``None``
+  si elle n'existe pas ou n'est pas à cet utilisateur (404). Le montant ne vient jamais de l'app.
+
+Adaptateurs : ``fastapi_router()``, ``flask_blueprint()``, ``django_view()``, ou ``handle()``
+sans framework. Un client ``TechnasPay`` (sync) ou ``AsyncTechnasPay`` convient.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import inspect
+import json
+import re
+from dataclasses import dataclass, field
+from typing import Any, Awaitable, Callable, Dict, Mapping, Optional, Union
+from urllib.parse import unquote
+
+from .errors import TechnasPayError, WebhookVerificationError
+from .models import retry_reference, to_app_json
+from .webhooks import WebhookHandlers
+
+
+@dataclass
+class AppOrder:
+    """Ce que ``resolve_order`` rend (un ``dict`` aux mêmes clés convient aussi)."""
+
+    #: Entier en unité principale (5000 = 5 000 FCFA).
+    amount: int
+    #: ``{"email", "name", "phone"?, "country"?}``
+    customer: Dict[str, str]
+    #: Facultative : sans elle, la devise suit le pays du client (zone franc CFA).
+    currency: Optional[str] = None
+    description: Optional[str] = None
+    #: Page de retour (lien qui rouvre l'app) ; sinon ``return_url`` des routes.
+    return_url: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class AppRequest:
+    method: str
+    #: Relatif au préfixe de montage : ``/payments``, ``/methods``…
+    path: str
+    query: Mapping[str, str] = field(default_factory=dict)
+    #: Clés en minuscules.
+    headers: Mapping[str, str] = field(default_factory=dict)
+    raw_body: bytes = b""
+    #: L'objet de requête du framework, passé tel quel à ``authorize``.
+    original: Any = None
+
+
+@dataclass
+class AppResponse:
+    status: int
+    body: Any
+
+
+async def _maybe(value: Any) -> Any:
+    return await value if inspect.isawaitable(value) else value
+
+
+def _err(status: int, code: str, message: str, retryable: bool = False) -> AppResponse:
+    return AppResponse(status, {"code": code, "message": message, "retryable": retryable})
+
+
+def _from_pay_error(e: TechnasPayError) -> AppResponse:
+    # Panne ou réseau côté Technas : 502, à relire plus tard. Sinon le refus est transmis tel quel.
+    if e.code == "network_error" or e.status >= 500 or e.status == 0:
+        return _err(502, e.code, e.message, True)
+    return _err(e.status, e.code, e.message, e.retryable)
+
+
+def _order_id_of(reference: str) -> str:
+    i = reference.rfind("-")
+    return reference[:i] if i > 0 else reference
+
+
+def _as_order(raw: Any) -> AppOrder:
+    if isinstance(raw, AppOrder):
+        return raw
+    return AppOrder(
+        amount=raw["amount"], customer=raw["customer"], currency=raw.get("currency"),
+        description=raw.get("description"), return_url=raw.get("return_url"), metadata=raw.get("metadata") or {},
+    )
+
+
+_PAYMENT_PATH = re.compile(r"^/payments/([^/]+)$")
+
+
+class AppRoutes:
+    def __init__(
+        self,
+        pay: Any,
+        *,
+        authorize: Callable[[AppRequest], Union[Any, Awaitable[Any]]],
+        resolve_order: Callable[[str, Any], Union[Any, Awaitable[Any]]],
+        return_url: Optional[str] = None,
+        webhooks: Optional[WebhookHandlers] = None,
+        max_attempts: int = 20,
+    ) -> None:
+        self._pay = pay
+        self._authorize = authorize
+        self._resolve = resolve_order
+        self._return_url = return_url
+        self._webhooks = webhooks
+        self._max_attempts = max_attempts
+
+    async def _start(self, order_id: str, order: AppOrder) -> Any:
+        # Une référence = un essai : `order_id-1`, `-2`… Un essai expiré lève payment_expired, on
+        # passe au suivant. Un essai en cours (ou payé) est rendu tel quel : jamais deux paiements.
+        attempt = 1
+        while True:
+            options: Dict[str, Any] = {"metadata": {**order.metadata, "order_id": order_id}}
+            if order.currency:
+                options["currency"] = order.currency
+            if order.description:
+                options["description"] = order.description
+            try:
+                return await _maybe(self._pay.ask_for_payment(
+                    amount=order.amount,
+                    reference=retry_reference(order_id, attempt),
+                    customer=order.customer,
+                    return_url=order.return_url or self._return_url,
+                    **options,
+                ))
+            except TechnasPayError as e:
+                if e.code == "payment_expired" and attempt < self._max_attempts:
+                    attempt += 1
+                    continue
+                raise
+
+    async def handle(self, req: AppRequest) -> AppResponse:
+        """Le cœur, sans framework."""
+        path = "/" + req.path.strip("/")
+        method = req.method.upper()
+        headers = {k.lower(): v for k, v in req.headers.items()}
+
+        if method == "POST" and path == "/webhook":
+            if self._webhooks is None:
+                return _err(404, "not_found", "Webhook non branché")
+            try:
+                result = await _maybe(self._pay.handle_webhook(
+                    req.raw_body, headers.get("x-technas-payment-signature"), self._webhooks))
+            except WebhookVerificationError:
+                return AppResponse(400, {"error": "invalid_signature"})
+            # Une erreur de vos fonctions remonte (500) : Technas relivrera.
+            return AppResponse(200, result.body)
+
+        known = (method == "GET" and (path == "/methods" or _PAYMENT_PATH.match(path))) or (method == "POST" and path == "/payments")
+        if not known:
+            return _err(404, "not_found", "Route inconnue")
+
+        user = await _maybe(self._authorize(req))
+        if user is None:
+            return _err(401, "unauthorized", "Connexion requise")
+
+        try:
+            if path == "/methods":
+                order_id = req.query.get("orderId")
+                if not order_id:
+                    return _err(400, "invalid_request", "orderId manquant")
+                raw = await _maybe(self._resolve(order_id, user))
+                if raw is None:
+                    return _err(404, "order_not_found", "Commande introuvable")
+                order = _as_order(raw)
+                return AppResponse(200, {
+                    "amount": order.amount,
+                    "currency": order.currency,
+                    # La carte s'ouvre avec le compte carte du marchand (Stripe Connect) : à venir.
+                    "methods": [
+                        {"method": "mobile_money", "available": True, "reason": None},
+                        {"method": "card", "available": False, "reason": "not_enabled"},
+                    ],
+                })
+
+            if path == "/payments":
+                try:
+                    body = json.loads(req.raw_body or b"{}")
+                except ValueError:
+                    return _err(400, "invalid_request", "Corps JSON illisible")
+                order_id = body.get("orderId") if isinstance(body, dict) else None
+                if not isinstance(order_id, (str, int)) or isinstance(order_id, bool) or str(order_id) == "":
+                    return _err(400, "invalid_request", "orderId manquant")
+                order_id = str(order_id)
+                raw = await _maybe(self._resolve(order_id, user))
+                if raw is None:
+                    return _err(404, "order_not_found", "Commande introuvable")
+                payment = await self._start(order_id, _as_order(raw))
+                return AppResponse(200, {"payment": to_app_json(payment)})
+
+            # GET /payments/{id} : seulement si la commande de ce paiement est à cet utilisateur.
+            payment_id = unquote(_PAYMENT_PATH.match(path).group(1))  # type: ignore[union-attr]
+            try:
+                payment = await _maybe(self._pay.get_payment(payment_id))
+            except TechnasPayError as e:
+                if e.code == "payment_not_found":
+                    return _err(404, "payment_not_found", "Paiement introuvable")
+                raise
+            if await _maybe(self._resolve(_order_id_of(payment.reference), user)) is None:
+                return _err(404, "payment_not_found", "Paiement introuvable")
+            return AppResponse(200, {"payment": to_app_json(payment)})
+        except TechnasPayError as e:
+            return _from_pay_error(e)
+
+    def handle_sync(self, req: AppRequest) -> AppResponse:
+        """Pour un serveur synchrone (Flask, Django) avec le client ``TechnasPay``."""
+        return asyncio.run(self.handle(req))
+
+    # --- Adaptateurs -------------------------------------------------------------------------
+
+    def fastapi_router(self, prefix: str = "/api/technas-pay") -> Any:
+        """``app.include_router(routes.fastapi_router())``."""
+        from fastapi import APIRouter, Request
+        from fastapi.responses import JSONResponse
+
+        router = APIRouter(prefix=prefix)
+
+        async def endpoint(request: Request, rest: str) -> JSONResponse:
+            r = await self.handle(AppRequest(
+                method=request.method, path="/" + rest, query=dict(request.query_params),
+                headers={k.lower(): v for k, v in request.headers.items()}, raw_body=await request.body(), original=request,
+            ))
+            return JSONResponse(r.body, status_code=r.status)
+
+        # Annotations réelles : avec `from __future__ import annotations`, FastAPI ne retrouverait pas
+        # `Request` (importé ici, hors du module) et lirait `request` comme un paramètre de requête.
+        endpoint.__annotations__ = {"request": Request, "rest": str, "return": JSONResponse}
+        router.add_api_route("/{rest:path}", endpoint, methods=["GET", "POST"], include_in_schema=False)
+        return router
+
+    def flask_blueprint(self, name: str = "technas_pay", url_prefix: str = "/api/technas-pay") -> Any:
+        """``app.register_blueprint(routes.flask_blueprint())``."""
+        from flask import Blueprint, jsonify, request
+
+        bp = Blueprint(name, __name__, url_prefix=url_prefix)
+
+        def endpoint(rest: str):  # type: ignore[no-untyped-def]
+            r = self.handle_sync(AppRequest(
+                method=request.method, path="/" + rest, query=request.args.to_dict(),
+                headers={k.lower(): v for k, v in request.headers.items()}, raw_body=request.get_data(), original=request,
+            ))
+            return jsonify(r.body), r.status
+
+        bp.add_url_rule("/<path:rest>", "technas_pay_app", endpoint, methods=["GET", "POST"])
+        return bp
+
+    def django_view(self) -> Callable[..., Any]:
+        """``path("api/technas-pay/<path:rest>", routes.django_view())`` dans ``urls.py``."""
+        from django.http import JsonResponse
+        from django.views.decorators.csrf import csrf_exempt
+
+        @csrf_exempt  # l'app s'authentifie par jeton (authorize), le webhook par signature
+        def view(request: Any, rest: str) -> Any:
+            r = self.handle_sync(AppRequest(
+                method=request.method, path="/" + rest, query=request.GET.dict(),
+                headers={k.lower(): v for k, v in request.headers.items()}, raw_body=request.body, original=request,
+            ))
+            return JsonResponse(r.body, status=r.status, safe=False)
+
+        return view
