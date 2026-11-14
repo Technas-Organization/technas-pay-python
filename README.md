@@ -72,6 +72,27 @@ Exemples complets, testés : [FastAPI](examples/fastapi_app.py), [Flask](example
 
 Fonctions disponibles : `on_completed`, `on_failed` (pas définitif), `on_expired` (définitif), `on_refund`, `on_top_up`, `on_payout_destination`, `on_balance_converted`, `on_fx_mode_updated`. Un type inconnu est acquitté sans rien appeler. Une exception dans votre fonction doit remonter : Technas relivrera.
 
+## Pour une app mobile : les routes toutes faites
+
+Votre app Flutter ([`technas_pay_flutter`](https://github.com/Technas-Organization/technas-pay-dart/tree/main/technas_pay_flutter)) appelle ces routes sans glue. Vous ne fournissez que votre authentification et la lecture de la commande en base :
+
+```python
+routes = pay.app_routes(
+    authorize=lambda req: user_from_token(req.headers.get("authorization")),   # None → 401
+    resolve_order=lambda order_id, user: (                                     # relue EN BASE, None → 404
+        (o := Order.get(id=order_id, user=user)) and
+        {"amount": o.total, "customer": {"email": user.email, "name": user.name}}
+    ),
+    return_url="https://votre-app.com/paiement/retour",
+    webhooks=WebhookHandlers(on_completed=lambda e: Order.mark_paid(e.payment.reference)),
+)
+app.include_router(routes.fastapi_router())          # FastAPI → /api/technas-pay/...
+# Flask : app.register_blueprint(routes.flask_blueprint())
+# Django : path("api/technas-pay/<path:rest>", routes.django_view())
+```
+
+Routes : `GET /methods?orderId=`, `POST /payments` `{orderId}`, `GET /payments/{id}`, `POST /webhook` (adresse à déclarer à Technas). Les crochets peuvent être sync ou async. Les essais expirés sont sautés tout seuls (`42-1`, `42-2`…) : rien à stocker. Contrat : [`contract/app-contract.v1.json`](contract/app-contract.v1.json), rejoué par ce paquet et par le client Flutter.
+
 ## 4. Tout le reste
 
 | Méthode | Rôle |
