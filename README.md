@@ -9,12 +9,10 @@ C'est la même API que le SDK TypeScript [`@technas/pay-next`](https://github.co
 ## 1. Installer
 
 ```bash
-pip install technas-pay \
-  --index-url https://nexus.technas.fr/repository/technas-pypi-hosted/simple/ \
-  --extra-index-url https://pypi.org/simple/
+pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.4.0"
 ```
 
-Seule dépendance : `httpx`. Python 3.9 ou plus récent.
+Seule dépendance : `httpx`. Python 3.10 ou plus récent.
 
 Technas vous remet **un secret**. Mettez-le dans les variables d'environnement du serveur :
 
@@ -136,6 +134,15 @@ La liste complète des codes et quoi faire est dans [AGENTS.md](AGENTS.md#erreur
 ## La règle de relance
 
 **Une référence = un essai.** `failed` n'est pas définitif : le client peut encore payer sur la même page pendant une heure. Ne relancez qu'après `payment.expired`, avec une nouvelle référence (`retry_reference(order_id, attempt + 1)`).
+
+## Paiement par carte
+
+1. **Compte carte, une fois** : au clic du RESPONSABLE sur « Activer la carte », `link = pay.start_card_onboarding(country="TG", return_url=..., refresh_url=...)`, puis redirigez-le vers `link.url` (il y donne son identité et sa banque ; le lien expire en minutes). `refresh_url` : rappelez la méthode et redirigez de nouveau.
+2. **Attendez `pay.get_card_account().can_accept_payments`** (ou le webhook `on_card_account_updated`). Avant, `method="card"` lève `card_account_not_ready` (`error.details.account_status`).
+3. **Faire payer** : `pay.ask_for_payment(method="card", amount=12.5, currency="EUR", ...)`. Devise obligatoire, décimales permises (jamais × 100).
+4. **L'argent va directement sur le compte carte**, commission Technas déjà retirée : il n'apparaît pas dans `get_balance()`. Un remboursement repart sur la carte depuis ce compte (`refund.kind == "stripe"`).
+5. **Tableau de bord** (virements, litiges) : `pay.get_card_dashboard_link()` → https://dashboard.stripe.com/, où le responsable se connecte avec SES identifiants Stripe.
+6. **App mobile** : `pay.app_routes(..., card=True, authorize_admin=...)` ; `/methods` n'ouvre la carte que si le compte est prêt et que `resolve_order` rend une `currency`.
 
 ## Sécurité
 

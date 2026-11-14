@@ -25,6 +25,8 @@ from ._version import __version__
 from .errors import TechnasPayError, error_from_response
 from .models import (
     Balance,
+    CardAccount,
+    CardOnboardingLink,
     CountryRules,
     FxMode,
     Payment,
@@ -72,6 +74,12 @@ def _parse_secret(secret: Optional[str]) -> _Secret:
             f"Secret Technas absent ou mal formé. Vérifiez la variable {SECRET_ENV}.",
         )
     return _Secret(mode=match.group(1), api_key=match.group(2), webhook_secret=match.group(3))
+
+
+def _positive_amount(value: Any) -> None:
+    """Positif, décimales permises (carte : 12.5 = 12,50 €)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value or value <= 0 or value == float("inf"):
+        raise TechnasPayError("invalid_amount", "amount doit être positif (5000 = 5 000 FCFA, 12.5 = 12,50 €)")
 
 
 def _positive_int(value: Any, name: str = "amount") -> None:
@@ -157,10 +165,11 @@ class _Base:
     def _ask_for_payment(
         self,
         *,
-        amount: int,
+        amount: Union[int, float],
         reference: str,
         customer: Dict[str, Any],
         return_url: str,
+        method: str = "mobile_money",
         currency: Optional[str] = None,
         description: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
@@ -168,7 +177,12 @@ class _Base:
         excluded_countries: Optional[Sequence[str]] = None,
         ask_country: bool = False,
     ) -> _Call[Payment]:
-        _positive_int(amount)
+        if method not in ("mobile_money", "card"):
+            raise TechnasPayError("invalid_request", 'method vaut "mobile_money" ou "card"')
+        if method == "card":
+            _positive_amount(amount)
+        else:
+            _positive_int(amount)
         # Jamais de devise devinée : sans devise ni pays connu, le payeur choisit son pays.
         resolved = (currency or "").strip().upper() or None
         if not resolved:
@@ -181,6 +195,10 @@ class _Base:
             "return_url": return_url,
             "metadata": metadata or {},
         }
+        if method == "card" and not resolved:
+            raise TechnasPayError("currency_required", "currency est obligatoire pour un paiement par carte (EUR, XOF…)")
+        if method == "card":
+            body["method"] = "card"
         if resolved:
             body["currency"] = resolved
         if description is not None:
@@ -221,9 +239,11 @@ class _Base:
         return _Call("GET", f"/v1/transactions{suffix}", None, parse)
 
     @staticmethod
-    def _refund(payment_id: str, amount: Optional[int], fees: str, reference: Optional[str]) -> _Call[Refund]:
+    def _refund(payment_id: str, amount: Optional[Union[int, float]], fees: str, reference: Optional[str]) -> _Call[Refund]:
+        # Décimales permises pour un paiement par carte ; Technas refuse un remboursement mobile
+        # money non entier (`invalid_amount`).
         if amount is not None:
-            _positive_int(amount)
+            _positive_amount(amount)
         if fees not in ("partner", "customer"):
             raise TechnasPayError("invalid_request", 'fees vaut "partner" ou "customer"')
         body: Dict[str, Any] = {"fees": fees}
@@ -311,6 +331,27 @@ class _Base:
             "beneficiary_name": destination.beneficiary_name,
         }
         return _Call("PUT", "/v1/payout-destination", body, PayoutDestinationState.from_api)
+
+    @staticmethod
+    def _start_card_onboarding(
+        return_url: str, refresh_url: str, country: Optional[str], email: Optional[str], business_type: Optional[str]
+    ) -> _Call[CardOnboardingLink]:
+        body: Dict[str, Any] = {"return_url": return_url, "refresh_url": refresh_url}
+        if country:
+            body["country"] = country.strip().upper()
+        if email:
+            body["email"] = email
+        if business_type:
+            body["business_type"] = business_type
+        return _Call("POST", "/v1/card/onboarding", body, CardOnboardingLink.from_api)
+
+    @staticmethod
+    def _get_card_account() -> _Call[CardAccount]:
+        return _Call("GET", "/v1/card/account", None, CardAccount.from_api)
+
+    @staticmethod
+    def _get_card_dashboard_link() -> _Call[str]:
+        return _Call("POST", "/v1/card/dashboard-link", {}, lambda raw: raw["url"])
 
     def _simulate_path(self, payment_id: str, outcome: str) -> str:
         if self._secrets().mode != "test":
@@ -431,7 +472,7 @@ class TechnasPay(_Base):
         """Vos paiements, du plus récent au plus ancien, par pages (``next_cursor``)."""
         return self._run(self._list_transactions(limit, status, cursor))
 
-    def refund(self, payment_id: str, *, amount: Optional[int] = None, fees: str = "partner", reference: Optional[str] = None) -> Refund:
+    def refund(self, payment_id: str, *, amount: Optional[Union[int, float]] = None, fees: str = "partner", reference: Optional[str] = None) -> Refund:
         """Rembourse un paiement ``completed`` (au numéro qui a payé). Sans ``amount`` : tout ce qui reste."""
         return self._run(self._refund(payment_id, amount, fees, reference))
 
@@ -462,6 +503,22 @@ class TechnasPay(_Base):
 
     def set_country_rules(self, *, allowed: Optional[Sequence[str]] = None, excluded: Optional[Sequence[str]] = None) -> CountryRules:
         return self._run(self._set_country_rules(allowed, excluded))
+
+    def start_card_onboarding(
+        self, *, return_url: str, refresh_url: str, country: Optional[str] = None,
+        email: Optional[str] = None, business_type: Optional[str] = None,
+    ) -> CardOnboardingLink:
+        """Ouvre (ou reprend) votre compte carte : le RESPONSABLE ouvre ``url`` et y donne son identité
+        et sa banque. À appeler au clic (le lien expire en minutes). ``country`` (le vôtre) la 1ʳᵉ fois."""
+        return self._run(self._start_card_onboarding(return_url, refresh_url, country, email, business_type))
+
+    def get_card_account(self) -> CardAccount:
+        """``can_accept_payments`` décide de tout pour ``ask_for_payment(method="card")``."""
+        return self._run(self._get_card_account())
+
+    def get_card_dashboard_link(self) -> str:
+        """https://dashboard.stripe.com/ : le responsable s'y connecte avec SES identifiants Stripe."""
+        return self._run(self._get_card_dashboard_link())
 
     def get_balance(self) -> List[Balance]:
         return self._run(self._get_balance())
@@ -547,7 +604,7 @@ class AsyncTechnasPay(_Base):
     async def list_transactions(self, *, limit: Optional[int] = None, status: Optional[str] = None, cursor: Optional[str] = None) -> TransactionPage:
         return await self._run(self._list_transactions(limit, status, cursor))
 
-    async def refund(self, payment_id: str, *, amount: Optional[int] = None, fees: str = "partner", reference: Optional[str] = None) -> Refund:
+    async def refund(self, payment_id: str, *, amount: Optional[Union[int, float]] = None, fees: str = "partner", reference: Optional[str] = None) -> Refund:
         return await self._run(self._refund(payment_id, amount, fees, reference))
 
     async def record_external_refund(
@@ -573,6 +630,18 @@ class AsyncTechnasPay(_Base):
 
     async def set_country_rules(self, *, allowed: Optional[Sequence[str]] = None, excluded: Optional[Sequence[str]] = None) -> CountryRules:
         return await self._run(self._set_country_rules(allowed, excluded))
+
+    async def start_card_onboarding(
+        self, *, return_url: str, refresh_url: str, country: Optional[str] = None,
+        email: Optional[str] = None, business_type: Optional[str] = None,
+    ) -> CardOnboardingLink:
+        return await self._run(self._start_card_onboarding(return_url, refresh_url, country, email, business_type))
+
+    async def get_card_account(self) -> CardAccount:
+        return await self._run(self._get_card_account())
+
+    async def get_card_dashboard_link(self) -> str:
+        return await self._run(self._get_card_dashboard_link())
 
     async def get_balance(self) -> List[Balance]:
         return await self._run(self._get_balance())

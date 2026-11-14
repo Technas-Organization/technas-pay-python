@@ -40,7 +40,10 @@ def _routes(case, pay, webhooks=None):
     def resolve(order_id, user):
         return case["orders"].get(order_id) if user == case["user"] else None
 
-    return pay.app_routes(authorize=authorize, resolve_order=resolve, return_url="https://app.test/retour", webhooks=webhooks)
+    extra = dict(case.get("options") or {})
+    if "admin" in case:
+        extra["authorize_admin"] = lambda req: case["admin"]
+    return pay.app_routes(authorize=authorize, resolve_order=resolve, return_url="https://app.test/retour", webhooks=webhooks, **extra)
 
 
 def _request(case):

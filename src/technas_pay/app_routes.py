@@ -78,9 +78,24 @@ def _from_pay_error(e: TechnasPayError) -> AppResponse:
     return _err(e.status, e.code, e.message, e.retryable)
 
 
+_ESSAI = re.compile(r"^(.+?)-(?:card-)?\d+$")
+
+
 def _order_id_of(reference: str) -> str:
-    i = reference.rfind("-")
-    return reference[:i] if i > 0 else reference
+    """``42-3`` ou ``42-card-3`` → ``42`` (la commande d'un essai)."""
+    m = _ESSAI.match(reference)
+    return m.group(1) if m else reference
+
+
+def _app_account(a: Any) -> Dict[str, Any]:
+    """Ce que l'app voit du compte carte : ni pays, ni identifiants."""
+    return {
+        "status": a.status,
+        "can_accept_payments": a.can_accept_payments,
+        "payouts_enabled": a.payouts_enabled,
+        "requirements": a.requirements,
+        "disabled_reason": a.disabled_reason,
+    }
 
 
 def _as_order(raw: Any) -> AppOrder:
@@ -105,20 +120,39 @@ class AppRoutes:
         return_url: Optional[str] = None,
         webhooks: Optional[WebhookHandlers] = None,
         max_attempts: int = 20,
+        card: bool = False,
+        authorize_admin: Optional[Callable[[AppRequest], Union[Any, Awaitable[Any]]]] = None,
     ) -> None:
+        """``card=True`` propose la carte (si votre compte carte est prêt et que la commande a une
+        ``currency``). ``authorize_admin`` (le MARCHAND, ou ``None`` → 403) ouvre ``GET /card/account``
+        et ``POST /card/onboarding`` ; sans lui, ces routes n'existent pas."""
         self._pay = pay
         self._authorize = authorize
         self._resolve = resolve_order
         self._return_url = return_url
         self._webhooks = webhooks
         self._max_attempts = max_attempts
+        self._card = card
+        self._authorize_admin = authorize_admin
 
-    async def _start(self, order_id: str, order: AppOrder) -> Any:
+    async def _card_method(self, order: AppOrder) -> Dict[str, Any]:
+        if not self._card:
+            return {"method": "card", "available": False, "reason": "not_enabled"}
+        if not order.currency:
+            return {"method": "card", "available": False, "reason": "currency_required"}
+        account = await _maybe(self._pay.get_card_account())
+        if account.can_accept_payments:
+            return {"method": "card", "available": True, "reason": None}
+        return {"method": "card", "available": False, "reason": "card_account_not_ready"}
+
+    async def _start(self, order_id: str, order: AppOrder, method: str = "mobile_money") -> Any:
         # Une référence = un essai : `order_id-1`, `-2`… Un essai expiré lève payment_expired, on
         # passe au suivant. Un essai en cours (ou payé) est rendu tel quel : jamais deux paiements.
         attempt = 1
         while True:
             options: Dict[str, Any] = {"metadata": {**order.metadata, "order_id": order_id}}
+            if method == "card":
+                options["method"] = "card"
             if order.currency:
                 options["currency"] = order.currency
             if order.description:
@@ -126,7 +160,8 @@ class AppRoutes:
             try:
                 return await _maybe(self._pay.ask_for_payment(
                     amount=order.amount,
-                    reference=retry_reference(order_id, attempt),
+                    # La carte a ses propres essais : un essai mobile money en cours n'est jamais heurté.
+                    reference=f"{order_id}-card-{attempt}" if method == "card" else retry_reference(order_id, attempt),
                     customer=order.customer,
                     return_url=order.return_url or self._return_url,
                     **options,
@@ -154,6 +189,9 @@ class AppRoutes:
             # Une erreur de vos fonctions remonte (500) : Technas relivrera.
             return AppResponse(200, result.body)
 
+        if (method == "GET" and path == "/card/account") or (method == "POST" and path == "/card/onboarding"):
+            return await self._card_routes(req, path)
+
         known = (method == "GET" and (path == "/methods" or _PAYMENT_PATH.match(path))) or (method == "POST" and path == "/payments")
         if not known:
             return _err(404, "not_found", "Route inconnue")
@@ -175,10 +213,7 @@ class AppRoutes:
                     "amount": order.amount,
                     "currency": order.currency,
                     # La carte s'ouvre avec le compte carte du marchand (Stripe Connect) : à venir.
-                    "methods": [
-                        {"method": "mobile_money", "available": True, "reason": None},
-                        {"method": "card", "available": False, "reason": "not_enabled"},
-                    ],
+                    "methods": [{"method": "mobile_money", "available": True, "reason": None}, await self._card_method(order)],
                 })
 
             if path == "/payments":
@@ -190,10 +225,18 @@ class AppRoutes:
                 if not isinstance(order_id, (str, int)) or isinstance(order_id, bool) or str(order_id) == "":
                     return _err(400, "invalid_request", "orderId manquant")
                 order_id = str(order_id)
+                pay_method = body.get("method") or "mobile_money"
+                if pay_method not in ("mobile_money", "card"):
+                    return _err(400, "invalid_request", 'method vaut "mobile_money" ou "card"')
+                if pay_method == "card" and not self._card:
+                    return _err(400, "method_not_available", "Le paiement par carte n'est pas ouvert")
                 raw = await _maybe(self._resolve(order_id, user))
                 if raw is None:
                     return _err(404, "order_not_found", "Commande introuvable")
-                payment = await self._start(order_id, _as_order(raw))
+                order = _as_order(raw)
+                if pay_method == "card" and not order.currency:
+                    return _err(400, "currency_required", "La commande n'a pas de devise : carte impossible")
+                payment = await self._start(order_id, order, pay_method)
                 return AppResponse(200, {"payment": to_app_json(payment)})
 
             # GET /payments/{id} : seulement si la commande de ce paiement est à cet utilisateur.
@@ -207,6 +250,31 @@ class AppRoutes:
             if await _maybe(self._resolve(_order_id_of(payment.reference), user)) is None:
                 return _err(404, "payment_not_found", "Paiement introuvable")
             return AppResponse(200, {"payment": to_app_json(payment)})
+        except TechnasPayError as e:
+            return _from_pay_error(e)
+
+    async def _card_routes(self, req: AppRequest, path: str) -> AppResponse:
+        """Routes du MARCHAND (compte carte), derrière ``authorize_admin``."""
+        if self._authorize_admin is None:
+            return _err(404, "not_found", "Route inconnue")
+        admin = await _maybe(self._authorize_admin(req))
+        if admin is None or admin is False:
+            return _err(403, "forbidden", "Réservé au marchand")
+        try:
+            if path == "/card/account":
+                return AppResponse(200, {"account": _app_account(await _maybe(self._pay.get_card_account()))})
+            try:
+                body = json.loads(req.raw_body or b"{}")
+            except ValueError:
+                return _err(400, "invalid_request", "Corps JSON illisible")
+            if not isinstance(body, dict) or not isinstance(body.get("returnUrl"), str) or not isinstance(body.get("refreshUrl"), str):
+                return _err(400, "invalid_request", "returnUrl et refreshUrl sont obligatoires")
+            link = await _maybe(self._pay.start_card_onboarding(
+                return_url=body["returnUrl"], refresh_url=body["refreshUrl"], country=body.get("country"),
+                email=body.get("email"), business_type=body.get("businessType"),
+            ))
+            return AppResponse(200, {"url": link.url, "kind": link.kind, "expires_at": link.expires_at,
+                                     "account": _app_account(link.account)})
         except TechnasPayError as e:
             return _from_pay_error(e)
 

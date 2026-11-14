@@ -10,13 +10,15 @@ permissions:
 
 jobs:
   test:
-    # ARC self-hosted (jamais ubuntu-latest). Dépôt privé : pas de PR de fork sur le runner.
-    runs-on: technas-backend-light
+    # Dépôt PUBLIC : machines GitHub, gratuites et isolées. Jamais les runners ARC du cluster ici :
+    # une PR venue d'un fork y exécuterait son code à côté du Nexus et de Vault (décision de
+    # Jonas, 15/11/2026). Ces tests n'ont besoin de rien chez nous (faux serveurs).
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.9", "3.12"]
+        python: ["3.10", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
