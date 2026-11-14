@@ -4,6 +4,7 @@ Lisez ``AGENTS.md`` (livré dans le paquet) si vous êtes un assistant de code.
 """
 
 from ._version import __version__
+from .app_routes import AppOrder, AppRequest, AppResponse, AppRoutes
 from .client import AsyncTechnasPay, TechnasPay, TestWebhook, WebhookResult
 from .errors import ErrorDetails, TechnasPayError, WebhookVerificationError
 from .models import (
@@ -32,6 +33,7 @@ from .webhooks import SIGNATURE_HEADER, Event, WebhookHandlers, sign, verify_sig
 
 __all__ = [
     "__version__",
+    "AppOrder", "AppRequest", "AppResponse", "AppRoutes",
     "AsyncTechnasPay", "TechnasPay", "TestWebhook", "WebhookResult",
     "ErrorDetails", "TechnasPayError", "WebhookVerificationError",
     "CURRENCY_BY_COUNTRY", "Balance", "CountryRules", "FxCountry", "FxMode", "Payment", "PaymentFx",

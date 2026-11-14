@@ -319,6 +319,16 @@ class _Base:
             raise TechnasPayError("invalid_outcome", "outcome : completed, failed ou expired")
         return f"{self._base_url}/test-checkout/{quote(payment_id, safe='')}/{outcome}"
 
+    def app_routes(self, **options: Any) -> Any:
+        """Routes toutes faites pour votre app Flutter (``technas_pay_flutter``) : voir ``AppRoutes``.
+
+        ``pay.app_routes(authorize=..., resolve_order=..., return_url=..., webhooks=...)``, puis
+        ``.fastapi_router()``, ``.flask_blueprint()`` ou ``.django_view()``.
+        """
+        from .app_routes import AppRoutes
+
+        return AppRoutes(self, **options)
+
     # --- Webhooks (sans réseau : identiques dans les deux clients) ----------------------------
 
     def verify_webhook(self, raw_body: Union[str, bytes], signature_header: Optional[str]) -> Event:

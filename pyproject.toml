@@ -34,10 +34,11 @@ packages = ["src/technas_pay"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "AGENTS.md" = "technas_pay/AGENTS.md"
+"contract/app-contract.v1.json" = "technas_pay/contract/app-contract.v1.json"
 "llms.txt" = "technas_pay/llms.txt"
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "examples", "README.md", "AGENTS.md", "llms.txt", "LICENSE", "CHANGELOG.md"]
+include = ["src", "tests", "examples", "contract", "README.md", "AGENTS.md", "llms.txt", "LICENSE", "CHANGELOG.md"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
