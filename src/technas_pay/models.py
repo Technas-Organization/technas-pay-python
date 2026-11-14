@@ -15,6 +15,8 @@ PaymentStatus = Literal["creating", "pending", "completed", "failed", "amount_mi
 
 FxModeName = Literal["none", "local", "converted"]
 RefundFees = Literal["partner", "customer"]
+PaymentMethod = Literal["mobile_money", "card"]
+"""``mobile_money`` (défaut) ou ``card`` (exige un compte carte actif et une devise)."""
 Number = Union[int, float]
 
 _FINAL_STATUSES = ("completed", "amount_mismatch", "expired")
@@ -93,6 +95,8 @@ class Payment:
     #: Ce qui vous revient.
     net_amount: Number
     status: str
+    #: ``mobile_money`` ou ``card``.
+    method: str
     refunded_amount: Number
     #: Hors zone CFA : le montant demandé, en F CFA.
     original_amount: Optional[Number]
@@ -117,6 +121,7 @@ class Payment:
             commission=raw.get("commission") or 0,
             net_amount=raw.get("net_amount"),
             status=raw.get("status"),
+            method=raw.get("method") or "mobile_money",
             refunded_amount=raw.get("refunded_amount") or 0,
             original_amount=raw.get("original_amount"),
             original_currency=raw.get("original_currency"),
@@ -142,6 +147,7 @@ def to_app_json(payment: "Payment") -> Dict[str, Any]:
         "amount": payment.amount,
         "currency": payment.currency,
         "expires_at": payment.expires_at,
+        "method": payment.method,
     }
 
 
@@ -259,7 +265,8 @@ class Refund:
     #: ``pending`` | ``completed`` | ``failed``
     status: str
     failure: Optional[str]
-    #: ``payout`` (renvoyé par Technas) | ``external`` (fait hors plateforme, seulement enregistré)
+    #: ``payout`` (renvoyé par Technas sur le numéro qui a payé) | ``stripe`` (paiement par carte, remboursé
+    #: sur la carte depuis VOTRE compte carte) | ``external`` (fait hors plateforme, seulement enregistré)
     kind: str
     method: Optional[str]
     note: Optional[str]
@@ -365,3 +372,48 @@ class FxMode:
                 for c in raw.get("countries") or []
             ],
         )
+
+
+@dataclass(frozen=True)
+class CardAccount:
+    """Où en est votre compte de paiement par carte.
+
+    ``status`` : ``not_started`` (appelez ``start_card_onboarding``), ``onboarding`` (inscription à
+    finir), ``under_review``, ``restricted`` (``requirements``, ``disabled_reason``), ``enabled``.
+    ``can_accept_payments`` est la seule condition pour ``ask_for_payment(method="card")``.
+    """
+
+    status: str
+    can_accept_payments: bool
+    payouts_enabled: bool
+    details_submitted: bool
+    country: Optional[str]
+    requirements: List[str]
+    disabled_reason: Optional[str]
+    test_mode: bool
+    updated_at: Optional[str]
+
+    @classmethod
+    def from_api(cls, raw: Any) -> "CardAccount":
+        raw = raw or {}
+        return cls(
+            status=raw.get("status"), can_accept_payments=bool(raw.get("can_accept_payments")),
+            payouts_enabled=bool(raw.get("payouts_enabled")), details_submitted=bool(raw.get("details_submitted")),
+            country=raw.get("country"), requirements=list(raw.get("requirements") or []),
+            disabled_reason=raw.get("disabled_reason"), test_mode=bool(raw.get("test_mode")), updated_at=raw.get("updated_at"),
+        )
+
+
+@dataclass(frozen=True)
+class CardOnboardingLink:
+    #: À ouvrir par le RESPONSABLE du compte (pas le développeur). Expire vite : à générer au clic.
+    url: str
+    #: ``onboarding`` (inscription à faire ou finir) ou ``dashboard`` (déjà fini).
+    kind: str
+    expires_at: Optional[str]
+    account: CardAccount
+
+    @classmethod
+    def from_api(cls, raw: Dict[str, Any]) -> "CardOnboardingLink":
+        return cls(url=raw.get("url"), kind=raw.get("kind"), expires_at=raw.get("expires_at"),
+                   account=CardAccount.from_api(raw.get("account")))

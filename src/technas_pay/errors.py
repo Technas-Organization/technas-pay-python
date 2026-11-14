@@ -22,6 +22,8 @@ class ErrorDetails:
     refundable_amount: Optional[float] = None
     reason: Optional[str] = None
     risk: Optional[str] = None
+    #: ``card_account_not_ready`` : où en est votre compte carte (``not_started``, ``onboarding``…).
+    account_status: Optional[str] = None
 
 
 class TechnasPayError(Exception):
@@ -79,6 +81,7 @@ def error_from_response(status: int, data: Any) -> TechnasPayError:
             refundable_amount=data.get("refundable_amount"),
             reason=data.get("reason"),
             risk=data.get("risk"),
+            account_status=data.get("account_status"),
         ),
     )
 
