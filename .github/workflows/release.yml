@@ -1,0 +1,15 @@
+name: Release (Nexus Technas)
+
+# Publie sur le Nexus PyPI privé de Technas à chaque tag vX.Y.Z.
+# La publication sur pypi.org public n'est PAS branchée : elle attend l'accord de Jonas.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+jobs:
+  publish:
+    uses: Technas-Organization/.github/.github/workflows/python-publish-nexus.yml@main
+    with:
+      package_name: technas_pay
+      python_version: "3.12"
+    secrets: inherit
