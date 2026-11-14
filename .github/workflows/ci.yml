@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # ARC self-hosted (jamais ubuntu-latest). Dépôt privé : pas de PR de fork sur le runner.
+    runs-on: technas-backend-light
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Installer
+        run: |
+          python -m pip install --upgrade pip build
+          python -m pip install -e ".[test]"
+      - name: Tests
+        run: python -m pytest -q
+      - name: Construire et vérifier le paquet
+        run: |
+          python -m build
+          python - <<'PY'
+          import glob, zipfile
+          wheel = glob.glob("dist/*.whl")[0]
+          names = zipfile.ZipFile(wheel).namelist()
+          for needed in ("technas_pay/AGENTS.md", "technas_pay/llms.txt", "technas_pay/py.typed"):
+              assert needed in names, f"{needed} absent de {wheel}"
+          print("ok", wheel)
+          PY
