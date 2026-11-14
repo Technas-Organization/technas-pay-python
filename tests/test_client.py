@@ -225,4 +225,35 @@ def test_les_deux_clients_ont_la_meme_surface():
 
 def test_to_app_json_ne_rend_que_le_necessaire(pay):
     j = to_app_json(ask(pay))
-    assert set(j) == {"id", "reference", "status", "checkout_url", "amount", "currency", "expires_at"}
+    assert set(j) == {"id", "reference", "status", "checkout_url", "amount", "currency", "expires_at", "method"}
+
+
+def test_carte_decimales_devise_et_method(gw):
+    calls = []
+
+    def handler(request):
+        calls.append(json.loads(request.content) if request.content else None)
+        if request.url.path == "/v1/payments":
+            return httpx.Response(201, json={"id": "c1", "reference": "r-card-1", "amount": 12.5, "currency": "EUR", "commission": 0.25,
+                                             "net_amount": 12.25, "status": "pending", "method": "card", "checkout_url": "https://x"})
+        if request.url.path == "/v1/card/account":
+            return httpx.Response(200, json={"status": "enabled", "can_accept_payments": True})
+        if request.url.path == "/v1/card/dashboard-link":
+            return httpx.Response(200, json={"url": "https://dashboard.stripe.com/"})
+        return httpx.Response(409, json={"code": "card_account_not_ready", "message": "m", "account_status": "onboarding"})
+
+    pay = TechnasPay(SECRET, base_url=BASE, http_client=httpx.Client(transport=httpx.MockTransport(handler)))
+    with pytest.raises(TechnasPayError) as e:
+        pay.ask_for_payment(amount=12.5, reference="r", customer=CUSTOMER, return_url="https://p.test", method="card")
+    assert e.value.code == "currency_required"
+    with pytest.raises(TechnasPayError) as e:
+        ask(pay, amount=12.5)
+    assert e.value.code == "invalid_amount"
+    p = pay.ask_for_payment(amount=12.5, reference="r-card-1", customer=CUSTOMER, return_url="https://p.test", method="card", currency="eur")
+    assert p.method == "card" and calls[-1]["method"] == "card" and calls[-1]["currency"] == "EUR"
+    assert pay.get_card_account().can_accept_payments
+    assert pay.get_card_dashboard_link() == "https://dashboard.stripe.com/"
+    with pytest.raises(TechnasPayError) as e:
+        pay.start_card_onboarding(return_url="https://a", refresh_url="https://b", country="fr")
+    assert e.value.code == "card_account_not_ready" and e.value.details.account_status == "onboarding"
+    assert calls[-1]["country"] == "FR"

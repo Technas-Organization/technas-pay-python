@@ -88,6 +88,15 @@ Ne réécrivez pas de routes : `pay.app_routes(authorize=..., resolve_order=...,
 - **Ne promettez jamais** un pays que `get_fx_mode()` ne donne pas `available=True`.
 - Branchez `on_fx_mode_updated` : un changement que l'utilisateur n'a pas fait signale une clé compromise.
 
+## Paiement par carte
+
+1. **Compte carte, une fois** : au clic du RESPONSABLE sur « Activer la carte », `link = pay.start_card_onboarding(country="TG", return_url=..., refresh_url=...)`, puis redirigez-le vers `link.url` (il y donne son identité et sa banque ; le lien expire en minutes). `refresh_url` : rappelez la méthode et redirigez de nouveau.
+2. **Attendez `pay.get_card_account().can_accept_payments`** (ou le webhook `on_card_account_updated`). Avant, `method="card"` lève `card_account_not_ready` (`error.details.account_status`).
+3. **Faire payer** : `pay.ask_for_payment(method="card", amount=12.5, currency="EUR", ...)`. Devise obligatoire, décimales permises (jamais × 100).
+4. **L'argent va directement sur le compte carte**, commission Technas déjà retirée : il n'apparaît pas dans `get_balance()`. Un remboursement repart sur la carte depuis ce compte (`refund.kind == "stripe"`).
+5. **Tableau de bord** (virements, litiges) : `pay.get_card_dashboard_link()` → https://dashboard.stripe.com/, où le responsable se connecte avec SES identifiants Stripe.
+6. **App mobile** : `pay.app_routes(..., card=True, authorize_admin=...)` ; `/methods` n'ouvre la carte que si le compte est prêt et que `resolve_order` rend une `currency`.
+
 ## Sécurité
 
 - **Le secret reste côté serveur** : ni template, ni réponse JSON, ni log, ni commit, ni URL.
@@ -152,6 +161,8 @@ Attrapez `TechnasPayError` et testez `error.code` (jamais le message). `error.re
 | `payer_unknown`, `refund_network_unavailable` | Rembourser le client autrement, prévenir Technas |
 | `provider_unavailable`, `unavailable`, `network_error` | Panne passagère : refaire le même appel |
 | `rate_limited` | Ralentir, réessayer |
+| `card_account_not_ready` | Compte carte pas prêt : `error.details.account_status` ; finir `start_card_onboarding` |
+| `currency_required` | Paiement par carte : passer `currency` |
 | `test_only` | Fonction de test appelée avec un secret réel |
 
 ## Vérifier l'intégration
@@ -168,6 +179,3 @@ Avec un secret `tps_test_`, aucun argent ne circule.
 
 Remplacez seulement le secret par `tps_live_…`. `return_url` doit être en https. Cette étape revient à l'utilisateur et à Technas : ne la faites pas de votre propre initiative.
 
-## À venir
-
-Le paiement par carte (Stripe Connect, `method="card"`) arrive dans une prochaine version, en même temps que dans le SDK TypeScript. Ne l'inventez pas avant : la passerelle refuserait le champ.

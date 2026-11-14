@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, Optional, Union
 
 from .errors import WebhookVerificationError
-from .models import PaymentFx, PayoutDestinationView, Refund
+from .models import CardAccount, PaymentFx, PayoutDestinationView, Refund
 
 SIGNATURE_HEADER = "X-Technas-Payment-Signature"
 DEFAULT_TOLERANCE_S = 300
@@ -88,6 +88,8 @@ class Event:
     top_up: Optional[TopUpInfo] = None
     conversion: Optional[Conversion] = None
     fx: Optional[FxModeChange] = None
+    #: ``card_account.updated`` : le nouvel état de votre compte carte.
+    card_account: Optional[CardAccount] = None
     #: Données brutes (toujours présentes), utiles pour un type que cette version ne connaît pas.
     data: Optional[Dict[str, Any]] = None
 
@@ -113,6 +115,8 @@ def parse_event(raw: Any) -> Event:
             mode=d.get("mode"), previous_mode=d.get("previous_mode"),
             markup_pct=d.get("markup_pct"), home_currency=d.get("home_currency"),
         ))
+    if t == "card_account.updated":
+        return Event(**base, card_account=CardAccount.from_api(d))
     if t == "balance.topped_up":
         return Event(**base, top_up=TopUpInfo(
             id=d.get("id"), amount=d.get("amount"), currency=d.get("currency"), completed_at=d.get("completed_at"),
@@ -188,6 +192,8 @@ class WebhookHandlers:
     on_top_up: Optional[Handler] = None
     on_balance_converted: Optional[Handler] = None
     on_fx_mode_updated: Optional[Handler] = None
+    #: Votre compte carte a changé d'état (ouvert, à compléter, suspendu…).
+    on_card_account_updated: Optional[Handler] = None
 
 
 def handler_for(event: Event, handlers: WebhookHandlers) -> Optional[Handler]:
@@ -208,6 +214,8 @@ def handler_for(event: Event, handlers: WebhookHandlers) -> Optional[Handler]:
         return handlers.on_balance_converted
     if t == "fx_mode.updated":
         return handlers.on_fx_mode_updated
+    if t == "card_account.updated":
+        return handlers.on_card_account_updated
     # Type inconnu : acquitté sans rien appeler (sinon relivré pendant trois jours).
     return None
 
