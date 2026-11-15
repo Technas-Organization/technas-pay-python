@@ -160,9 +160,9 @@ def test_le_reste_de_la_surface(pay, gw):
     assert pay.get_balance()[0].currency == "XOF"
     assert pay.get_settlements()[0].fee == 150
     assert pay.get_payout_networks("TG")[0].code == "moov_tg"
-    state = pay.set_payout_destination(PayoutDestination("TG", "moov_tg", "+22890000000", "Blexima"))
+    state = pay.set_payout_destination(PayoutDestination("TG", "moov_tg", "+22890000000", "Boutique Awa"))
     assert state.destinations[0].pending.status == "awaiting_confirmation"
-    assert json.loads(gw.requests[-1].content)["beneficiary_name"] == "Blexima"
+    assert json.loads(gw.requests[-1].content)["beneficiary_name"] == "Boutique Awa"
     assert pay.get_payout_destination().destinations[0].current is None
     top = pay.top_up_balance(amount=20000, currency="XOF")
     assert top.checkout_url.endswith("/top_1")
