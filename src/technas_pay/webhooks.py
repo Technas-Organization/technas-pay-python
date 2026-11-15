@@ -73,6 +73,23 @@ class FxModeChange:
 
 
 @dataclass(frozen=True)
+class KycRequired:
+    """``account.kyc_required`` : le seuil d'identité approche ou est atteint.
+
+    ``reason`` : ``amount_80`` (80 % du seuil encaissés), ``deadline_7d`` (échéance dans 7 jours),
+    ``blocked`` (premier refus). Une valeur que cette version ne connaît pas est gardée telle quelle.
+    Prévenez le RESPONSABLE : il dépose sa pièce d'identité sur ``console_url``.
+    """
+
+    reason: Optional[str]
+    collected_xof: Any
+    threshold_xof: Any
+    deadline: Optional[str]
+    blocked: bool
+    console_url: Optional[str]
+
+
+@dataclass(frozen=True)
 class Event:
     """Un événement vérifié. Un seul des champs de contenu est rempli selon ``type``.
 
@@ -90,6 +107,8 @@ class Event:
     fx: Optional[FxModeChange] = None
     #: ``card_account.updated`` : le nouvel état de votre compte carte.
     card_account: Optional[CardAccount] = None
+    #: ``account.kyc_required`` : où en est le seuil d'identité.
+    kyc_required: Optional[KycRequired] = None
     #: Données brutes (toujours présentes), utiles pour un type que cette version ne connaît pas.
     data: Optional[Dict[str, Any]] = None
 
@@ -117,6 +136,11 @@ def parse_event(raw: Any) -> Event:
         ))
     if t == "card_account.updated":
         return Event(**base, card_account=CardAccount.from_api(d))
+    if t == "account.kyc_required":
+        return Event(**base, kyc_required=KycRequired(
+            reason=d.get("reason"), collected_xof=d.get("collected_xof"), threshold_xof=d.get("threshold_xof"),
+            deadline=d.get("deadline"), blocked=bool(d.get("blocked")), console_url=d.get("console_url"),
+        ))
     if t == "balance.topped_up":
         return Event(**base, top_up=TopUpInfo(
             id=d.get("id"), amount=d.get("amount"), currency=d.get("currency"), completed_at=d.get("completed_at"),
@@ -180,6 +204,8 @@ class WebhookHandlers:
     - ``on_expired`` : définitif ; seul moment où relancer, avec une NOUVELLE référence.
     - ``on_refund`` : ``refund.completed`` / ``refund.failed`` / ``refund.recorded`` ; prévenez le client.
     - ``on_fx_mode_updated`` : si ce n'est pas vous, prévenez Technas (clé compromise ?).
+    - ``on_kyc_required`` : prévenez le RESPONSABLE (pas le client) de déposer sa pièce
+      (``event.kyc_required.console_url``).
 
     Une exception doit REMONTER : la réponse n'est pas 2xx et Technas relivre l'événement.
     """
@@ -194,6 +220,8 @@ class WebhookHandlers:
     on_fx_mode_updated: Optional[Handler] = None
     #: Votre compte carte a changé d'état (ouvert, à compléter, suspendu…).
     on_card_account_updated: Optional[Handler] = None
+    #: ``account.kyc_required`` : seuil d'identité à 80 %, échéance dans 7 jours, ou premier refus.
+    on_kyc_required: Optional[Handler] = None
 
 
 def handler_for(event: Event, handlers: WebhookHandlers) -> Optional[Handler]:
@@ -216,6 +244,8 @@ def handler_for(event: Event, handlers: WebhookHandlers) -> Optional[Handler]:
         return handlers.on_fx_mode_updated
     if t == "card_account.updated":
         return handlers.on_card_account_updated
+    if t == "account.kyc_required":
+        return handlers.on_kyc_required
     # Type inconnu : acquitté sans rien appeler (sinon relivré pendant trois jours).
     return None
 

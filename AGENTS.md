@@ -13,7 +13,7 @@ Même API, mêmes règles que le SDK TypeScript `@technas/pay-next` : seuls les 
 ## Installer
 
 ```bash
-pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.4.2"
+pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.5.0"
 ```
 
 
@@ -39,6 +39,7 @@ Créez UNE instance au niveau du module (`pay = TechnasPay()`) : elle lit `TECHN
 | Savoir que le remboursement est arrivé | `on_refund` (`refund.completed`, `refund.failed`, `refund.recorded`) |
 | Recharger le solde | `pay.top_up_balance(amount=..., currency="XOF")`, ouvrir `checkout_url` ; `on_top_up` |
 | Solde, reversements | `pay.get_balance()`, `pay.get_settlements()` |
+| Seuil d'identité du compte (à montrer au marchand) | `pay.get_account_kyc()` ; avis `on_kyc_required` |
 | Historique | `pay.list_transactions(limit=, status=, cursor=)` |
 | Pays hors zone CFA ouverts, risques | `pay.get_fx_mode()` |
 | Activer une option hors zone (après accord explicite) | `pay.set_fx_mode(mode="local", accept_risk=True)` |
@@ -94,6 +95,14 @@ Ne réécrivez pas de routes : `pay.app_routes(authorize=..., resolve_order=...,
 5. **Tableau de bord** (virements, litiges) : `pay.get_card_dashboard_link()` → le tableau de bord de votre compte carte, où le responsable se connecte avec SES identifiants.
 6. **App mobile** : `pay.app_routes(..., card=True, authorize_admin=...)` ; `/methods` n'ouvre la carte que si le compte est prêt et que `resolve_order` rend une `currency`.
 
+## Seuil d'identité
+
+- **La règle** : en réel, un compte sans pièce d'identité vérifiée voit ses NOUVEAUX paiements mobile money refusés (`kyc_required`) au-delà de 1 000 000 F CFA encaissés en cumul ou de 30 jours après son premier paiement réel encaissé. Rien de ce qui existe n'est bloqué (paiement en cours, remboursement, reversement, lecture). La carte n'est pas concernée. Le responsable dépose sa pièce dans la console (`console_url`).
+- **Afficher l'état** : `pay.get_account_kyc()` dans l'espace d'administration du MARCHAND (jamais au client final) : `stage` (`ok`, `soon`, `blocked`, `verified`, `not_applicable`), `collected_xof` / `threshold_xof`, `deadline`, `console_url`. Une valeur inconnue de `stage`, `level` ou `reason` est une chaîne : traitez-la comme « à vérifier », sans planter.
+- **Prévenir le responsable** : branchez `WebhookHandlers(on_kyc_required=...)` (avis `account.kyc_required`, à 80 % du seuil, 7 jours avant l'échéance, puis au premier refus) ; `event.kyc_required.reason` vaut `amount_80`, `deadline_7d` ou `blocked`.
+- **Sur `kyc_required`** : proposez la carte, ou expliquez au client que le paiement mobile money n'est pas disponible pour le moment. **Ne réessayez jamais.**
+- **Les chiffres viennent de l'API** (`threshold_xof`, `grace_days`, `warn_from_xof`) : n'écrivez jamais 1 000 000 ni 30 dans le code.
+
 ## Sécurité
 
 - **Le secret reste côté serveur** : ni template, ni réponse JSON, ni log, ni commit, ni URL.
@@ -132,7 +141,7 @@ Ne réécrivez pas de routes : `pay.app_routes(authorize=..., resolve_order=...,
 
 ## Erreurs
 
-Attrapez `TechnasPayError` et testez `error.code` (jamais le message). `error.retryable` vrai : refaites **le même appel**, mêmes valeurs. `error.details` : `missing_amount`, `refundable_amount`, `reason`, `risk`.
+Attrapez `TechnasPayError` et testez `error.code` (jamais le message). `error.retryable` vrai : refaites **le même appel**, mêmes valeurs. `error.details` : `missing_amount`, `refundable_amount`, `reason`, `risk`, `account_status`, `console_url`, `version`.
 
 | `error.code` | Que faire |
 |---|---|
@@ -160,6 +169,8 @@ Attrapez `TechnasPayError` et testez `error.code` (jamais le message). `error.re
 | `rate_limited` | Ralentir, réessayer |
 | `card_account_not_ready` | Compte carte pas prêt : `error.details.account_status` ; finir `start_card_onboarding` |
 | `currency_required` | Paiement par carte : passer `currency` |
+| `kyc_required` | Seuil d'identité dépassé (`error.details.reason` : `amount` ou `duration`) : proposer la carte ou dire au client que le mobile money n'est pas disponible pour le moment, JAMAIS réessayer ; le responsable dépose sa pièce sur `error.details.console_url` |
+| `contract_required` | Le responsable accepte le contrat `error.details.version` dans la console (`error.details.console_url`) ; ne pas réessayer avant |
 | `test_only` | Fonction de test appelée avec un secret réel |
 
 ## Vérifier l'intégration

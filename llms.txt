@@ -6,6 +6,8 @@ Agents de code : lisez d'abord AGENTS.md (méthodes, champs obligatoires, sécur
 
 Une référence = un essai : `retry_reference(order_id, attempt)`. Relancez avec une NOUVELLE référence seulement après payment.expired (`can_retry`), jamais sur failed. Rejouer la référence d'un paiement expiré lève `TechnasPayError` code `payment_expired` (409).
 
+Seuil d'identité : `get_account_kyc()` (à montrer au marchand), avis `on_kyc_required`. Sur l'erreur `kyc_required` (409), proposer la carte ou dire au client que le mobile money n'est pas disponible pour le moment, jamais réessayer ; le responsable dépose sa pièce sur `details.console_url`.
+
 Hors zone franc CFA : option `local` seulement, activée par l'utilisateur lui-même après avoir lu le risque (`get_fx_mode().risks["local"]`, puis `set_fx_mode(mode="local", accept_risk=True)`). `converted` n'est pas ouvert (`fx_mode_unavailable`).
 
 - [AGENTS.md](AGENTS.md) : règles pour un agent de code
