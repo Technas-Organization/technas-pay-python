@@ -15,6 +15,7 @@ PaymentStatus = Literal["creating", "pending", "completed", "failed", "amount_mi
 
 FxModeName = Literal["none", "local", "converted"]
 RefundFees = Literal["partner", "customer"]
+RefundKind = Literal["payout", "external", "card"]
 PaymentMethod = Literal["mobile_money", "card"]
 """``mobile_money`` (défaut) ou ``card`` (exige un compte carte actif et une devise)."""
 Number = Union[int, float]
@@ -265,9 +266,10 @@ class Refund:
     #: ``pending`` | ``completed`` | ``failed``
     status: str
     failure: Optional[str]
-    #: ``payout`` (renvoyé par Technas sur le numéro qui a payé) | ``stripe`` (paiement par carte, remboursé
-    #: sur la carte depuis VOTRE compte carte) | ``external`` (fait hors plateforme, seulement enregistré)
-    kind: str
+    #: ``payout`` (renvoyé par Technas sur le numéro qui a payé) | ``card`` (paiement par carte, remboursé
+    #: sur la carte depuis VOTRE compte carte) | ``external`` (fait hors plateforme, seulement enregistré).
+    #: Une ancienne valeur ``stripe`` renvoyée par l'API est lue comme ``card``.
+    kind: RefundKind
     method: Optional[str]
     note: Optional[str]
     recorded_by: Optional[str]
@@ -279,10 +281,17 @@ class Refund:
             id=raw.get("id"), payment_id=raw.get("payment_id"), payment_reference=raw.get("payment_reference"),
             amount=raw.get("amount"), sent_amount=raw.get("sent_amount"), fee=raw.get("fee"),
             fees=raw.get("fees"), balance_debit=raw.get("balance_debit"), currency=raw.get("currency"),
-            status=raw.get("status"), failure=raw.get("failure"), kind=raw.get("kind") or "payout",
+            status=raw.get("status"), failure=raw.get("failure"), kind=_refund_kind(raw.get("kind")),
             method=raw.get("method"), note=raw.get("note"), recorded_by=raw.get("recorded_by"),
             created_at=raw.get("created_at"),
         )
+
+
+def _refund_kind(raw: Optional[str]) -> RefundKind:
+    """``payout`` | ``external`` | ``card`` ; l'ancien ``stripe`` (transition) devient ``card``."""
+    if not raw:
+        return "payout"
+    return "card" if raw == "stripe" else raw  # type: ignore[return-value]
 
 
 @dataclass(frozen=True)

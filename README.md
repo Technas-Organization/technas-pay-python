@@ -2,18 +2,18 @@
 
 Encaissez des paiements mobile money et par carte via Technas depuis un serveur Python : FastAPI, Django, Flask, ou tout autre framework.
 
-**Technas Pay réunit le mobile money et la carte dans un seul SDK, du serveur jusqu'à l'app Flutter.** Carte : 1 % (plus les frais Stripe de votre compte). Mobile money : 2 % (les frais de l'opérateur sont payés par le client). Sans abonnement, et une clé de test sans papier pour commencer.
+**Technas Pay réunit le mobile money et la carte dans un seul SDK, du serveur jusqu'à l'app Flutter.** Carte : 1 % (plus les frais de votre compte carte). Mobile money : 2 % (les frais de l'opérateur sont payés par le client). Sans abonnement, et une clé de test sans papier pour commencer.
 
 Devises et pays, pièces demandées, versements, comparaison avec les autres prestataires : [le hub Technas Pay](https://github.com/Technas-Organization/technas-pay).
 
-Vous intégrez avec un assistant de code (Codex, Claude Code…) ? Dites-lui de lire [AGENTS.md](AGENTS.md), livré dans le paquet avec [llms.txt](llms.txt).
+Vous intégrez avec un assistant de code ? Dites-lui de lire [AGENTS.md](AGENTS.md), livré dans le paquet avec [llms.txt](llms.txt).
 
 C'est la même API que le SDK TypeScript [`@technas/pay-next`](https://github.com/Technas-Organization/technas-pay-next), en snake_case.
 
 ## 1. Installer
 
 ```bash
-pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.4.1"
+pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.4.2"
 ```
 
 Seule dépendance : `httpx`. Python 3.9 ou plus récent.
@@ -141,11 +141,11 @@ La liste complète des codes et quoi faire est dans [AGENTS.md](AGENTS.md#erreur
 
 ## Paiement par carte
 
-1. **Compte carte, une fois** : au clic du RESPONSABLE sur « Activer la carte », `link = pay.start_card_onboarding(country="TG", return_url=..., refresh_url=...)`, puis redirigez-le vers `link.url` (il y donne son identité et sa banque ; le lien expire en minutes). `refresh_url` : rappelez la méthode et redirigez de nouveau.
+1. **Compte carte, une fois** : au clic du RESPONSABLE sur « Activer la carte », `link = pay.start_card_onboarding(country="TG", return_url=..., refresh_url=...)`, puis redirigez-le vers `link.url` : il y donne son identité et sa banque sur la page sécurisée de notre partenaire carte (Stripe), qui vous fera accepter son contrat (le lien expire en minutes). `refresh_url` : rappelez la méthode et redirigez de nouveau.
 2. **Attendez `pay.get_card_account().can_accept_payments`** (ou le webhook `on_card_account_updated`). Avant, `method="card"` lève `card_account_not_ready` (`error.details.account_status`).
 3. **Faire payer** : `pay.ask_for_payment(method="card", amount=12.5, currency="EUR", ...)`. Devise obligatoire, décimales permises (jamais × 100).
-4. **L'argent va directement sur le compte carte**, commission Technas déjà retirée : il n'apparaît pas dans `get_balance()`. Un remboursement repart sur la carte depuis ce compte (`refund.kind == "stripe"`).
-5. **Tableau de bord** (virements, litiges) : `pay.get_card_dashboard_link()` → https://dashboard.stripe.com/, où le responsable se connecte avec SES identifiants Stripe.
+4. **L'argent va directement sur le compte carte**, commission Technas déjà retirée : il n'apparaît pas dans `get_balance()`. Un remboursement repart sur la carte depuis ce compte (`refund.kind == "card"`).
+5. **Tableau de bord** (virements, litiges) : `pay.get_card_dashboard_link()` → le tableau de bord de votre compte carte, où le responsable se connecte avec SES identifiants.
 6. **App mobile** : `pay.app_routes(..., card=True, authorize_admin=...)` ; `/methods` n'ouvre la carte que si le compte est prêt et que `resolve_order` rend une `currency`.
 
 ## Sécurité
