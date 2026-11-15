@@ -13,7 +13,7 @@ C'est la même API que le SDK TypeScript [`@technas/pay-next`](https://github.co
 ## 1. Installer
 
 ```bash
-pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.5.0"
+pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.5.1"
 ```
 
 Seule dépendance : `httpx`. Python 3.9 ou plus récent.
@@ -148,7 +148,7 @@ if kyc.stage in ("soon", "blocked"):
     show_banner(f"{kyc.collected_xof} / {kyc.threshold_xof} F CFA, échéance {kyc.deadline}", kyc.console_url)
 ```
 
-Les chiffres (seuil, délai) viennent de l'API (`threshold_xof`, `grace_days`) : ne les écrivez jamais en dur. Branchez `on_kyc_required` pour prévenir le responsable : l'avis `account.kyc_required` part à 80 % du seuil (`reason="amount_80"`), 7 jours avant l'échéance (`"deadline_7d"`), puis au premier refus (`"blocked"`), avec `event.kyc_required.collected_xof`, `threshold_xof`, `deadline`, `blocked`, `console_url`.
+Les chiffres (seuil, délai) viennent de l'API (`threshold_xof`, `grace_days`) : ne les écrivez jamais en dur. Branchez `on_kyc_required` pour prévenir le responsable : l'avis `account.kyc_required` part à 80 % du seuil (`reason="amount_80"`), 7 jours avant l'échéance (`"deadline_7d"`), puis au premier refus (`"blocked"`), avec `event.kyc_required.collected_xof`, `threshold_xof`, `deadline`, `blocked`, `console_url`. L'avis porte aussi l'état du compte, comme `get_account_kyc()` : `stage`, `block_reason` (`amount` ou `duration`), `days_elapsed`, `grace_days`, `first_collected_at` (facultatifs : `None` sur un avis plus ancien).
 
 ## La règle de relance
 

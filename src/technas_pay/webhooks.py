@@ -79,6 +79,11 @@ class KycRequired:
     ``reason`` : ``amount_80`` (80 % du seuil encaissés), ``deadline_7d`` (échéance dans 7 jours),
     ``blocked`` (premier refus). Une valeur que cette version ne connaît pas est gardée telle quelle.
     Prévenez le RESPONSABLE : il dépose sa pièce d'identité sur ``console_url``.
+
+    L'avis porte aussi l'état du compte, comme ``get_account_kyc`` : ``stage`` (``ok``, ``soon``,
+    ``blocked``, ``verified``, ``not_applicable``), ``block_reason`` (``amount`` ou ``duration``,
+    si bloqué), ``days_elapsed``, ``grace_days``, ``first_collected_at``. Tous facultatifs : un
+    avis plus ancien ne les porte pas, ils valent alors ``None``.
     """
 
     reason: Optional[str]
@@ -87,6 +92,11 @@ class KycRequired:
     deadline: Optional[str]
     blocked: bool
     console_url: Optional[str]
+    stage: Optional[str] = None
+    block_reason: Optional[str] = None
+    days_elapsed: Optional[int] = None
+    grace_days: Optional[int] = None
+    first_collected_at: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -140,6 +150,8 @@ def parse_event(raw: Any) -> Event:
         return Event(**base, kyc_required=KycRequired(
             reason=d.get("reason"), collected_xof=d.get("collected_xof"), threshold_xof=d.get("threshold_xof"),
             deadline=d.get("deadline"), blocked=bool(d.get("blocked")), console_url=d.get("console_url"),
+            stage=d.get("stage"), block_reason=d.get("block_reason"), days_elapsed=d.get("days_elapsed"),
+            grace_days=d.get("grace_days"), first_collected_at=d.get("first_collected_at"),
         ))
     if t == "balance.topped_up":
         return Event(**base, top_up=TopUpInfo(

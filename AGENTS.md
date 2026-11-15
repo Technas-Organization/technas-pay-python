@@ -13,7 +13,7 @@ Même API, mêmes règles que le SDK TypeScript `@technas/pay-next` : seuls les 
 ## Installer
 
 ```bash
-pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.5.0"
+pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.5.1"
 ```
 
 
@@ -99,7 +99,7 @@ Ne réécrivez pas de routes : `pay.app_routes(authorize=..., resolve_order=...,
 
 - **La règle** : en réel, un compte sans pièce d'identité vérifiée voit ses NOUVEAUX paiements mobile money refusés (`kyc_required`) au-delà de 1 000 000 F CFA encaissés en cumul ou de 30 jours après son premier paiement réel encaissé. Rien de ce qui existe n'est bloqué (paiement en cours, remboursement, reversement, lecture). La carte n'est pas concernée. Le responsable dépose sa pièce dans la console (`console_url`).
 - **Afficher l'état** : `pay.get_account_kyc()` dans l'espace d'administration du MARCHAND (jamais au client final) : `stage` (`ok`, `soon`, `blocked`, `verified`, `not_applicable`), `collected_xof` / `threshold_xof`, `deadline`, `console_url`. Une valeur inconnue de `stage`, `level` ou `reason` est une chaîne : traitez-la comme « à vérifier », sans planter.
-- **Prévenir le responsable** : branchez `WebhookHandlers(on_kyc_required=...)` (avis `account.kyc_required`, à 80 % du seuil, 7 jours avant l'échéance, puis au premier refus) ; `event.kyc_required.reason` vaut `amount_80`, `deadline_7d` ou `blocked`.
+- **Prévenir le responsable** : branchez `WebhookHandlers(on_kyc_required=...)` (avis `account.kyc_required`, à 80 % du seuil, 7 jours avant l'échéance, puis au premier refus) ; `event.kyc_required.reason` vaut `amount_80`, `deadline_7d` ou `blocked`. L'avis porte aussi `stage`, `block_reason` (`amount` | `duration`), `days_elapsed`, `grace_days`, `first_collected_at`, comme `get_account_kyc()` ; tous facultatifs (`None` sur un avis plus ancien).
 - **Sur `kyc_required`** : proposez la carte, ou expliquez au client que le paiement mobile money n'est pas disponible pour le moment. **Ne réessayez jamais.**
 - **Les chiffres viennent de l'API** (`threshold_xof`, `grace_days`, `warn_from_xof`) : n'écrivez jamais 1 000 000 ni 30 dans le code.
 
