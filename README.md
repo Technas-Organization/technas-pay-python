@@ -13,7 +13,7 @@ C'est la même API que le SDK TypeScript [`@technas/pay-next`](https://github.co
 ## 1. Installer
 
 ```bash
-pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.5.1"
+pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.6.0"
 ```
 
 Seule dépendance : `httpx`. Python 3.9 ou plus récent.
@@ -153,6 +153,38 @@ Les chiffres (seuil, délai) viennent de l'API (`threshold_xof`, `grace_days`) :
 ## La règle de relance
 
 **Une référence = un essai.** `failed` n'est pas définitif : le client peut encore payer sur la même page pendant une heure. Ne relancez qu'après `payment.expired`, avec une nouvelle référence (`retry_reference(order_id, attempt + 1)`).
+
+Le client change d'offre ou revient plus tard : c'est un NOUVEL essai (`retry_reference(facture_id, n + 1)`), jamais un refus, même si l'essai précédent est encore `pending` ou `failed`. Réutiliser une référence avec un autre montant lève `reference_conflict` ; les routes toutes faites passent seules à l'essai suivant. Au retour du client, relisez le dernier essai (`get_payment`) avant de dire quoi que ce soit. La facture n'est payée que sur `payment.completed` ; si le client a payé deux pages, remboursez l'essai en trop (`refund`).
+
+```python
+from technas_pay import retry_reference
+
+def payer(facture, montant):
+    """Au clic « payer » : `montant` est celui de l'offre choisie MAINTENANT."""
+    if facture.dernier_paiement_id:
+        dernier = pay.get_payment(facture.dernier_paiement_id)  # la vérité est chez Technas
+        if dernier.status == "completed":
+            return "deja_payee"
+    # pending, failed, expired ou autre montant : nouvel essai, jamais un refus
+    facture.essai += 1
+    paiement = pay.ask_for_payment(
+        amount=montant,
+        reference=retry_reference(facture.id, facture.essai),
+        customer={"email": facture.email, "name": facture.nom},
+        return_url="https://votre-site.example/merci",
+    )
+    facture.dernier_paiement_id = paiement.id
+    facture.save()
+    return paiement.checkout_url
+
+def on_completed(event):
+    facture = Facture.get(event.payment.reference.rsplit("-", 1)[0])
+    if facture.payee_par and facture.payee_par != event.payment.id:
+        pay.refund(event.payment.id)  # le client a payé deux pages : on rend l'essai en trop
+        return
+    facture.payee_par = event.payment.id  # payée ici, et seulement ici
+    facture.save()
+```
 
 ## Paiement par carte
 

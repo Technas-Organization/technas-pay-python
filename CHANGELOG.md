@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.0 — 2026-11-15
+
+Le client change d'offre ou revient plus tard. Routes toutes faites (`app_routes`) : un `reference_conflict` (la référence d'un essai existe avec un autre montant : le client a changé d'offre) fait passer à l'essai suivant, comme `payment_expired`, dans la même borne `max_attempts` : jamais un refus. Contrat v1 : 24 cas. Documentation : nouvelle section « Le client change d'offre ou revient plus tard » (AGENTS.md, README, llms.txt) avec un exemple ; test de scénario (essai expiré, puis nouvel essai d'un autre montant).
+
 ## 0.5.1 — 2026-11-15
 
 Avis `account.kyc_required` : `KycRequired` porte aussi l'état du compte, comme `get_account_kyc()` : `stage`, `block_reason` (`amount` | `duration`), `days_elapsed`, `grace_days`, `first_collected_at`. Tous facultatifs (`None` sur un avis plus ancien). `reason` ne change pas de sens.

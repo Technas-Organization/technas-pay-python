@@ -146,8 +146,9 @@ class AppRoutes:
         return {"method": "card", "available": False, "reason": "card_account_not_ready"}
 
     async def _start(self, order_id: str, order: AppOrder, method: str = "mobile_money") -> Any:
-        # Une référence = un essai : `order_id-1`, `-2`… Un essai expiré lève payment_expired, on
-        # passe au suivant. Un essai en cours (ou payé) est rendu tel quel : jamais deux paiements.
+        # Une référence = un essai : `order_id-1`, `-2`… Un essai expiré (payment_expired) ou d'un
+        # autre montant (reference_conflict : le client a changé d'offre) est sauté : essai suivant,
+        # jamais un refus. Un essai en cours (ou payé) au même montant est rendu tel quel.
         attempt = 1
         while True:
             options: Dict[str, Any] = {"metadata": {**order.metadata, "order_id": order_id}}
@@ -167,7 +168,7 @@ class AppRoutes:
                     **options,
                 ))
             except TechnasPayError as e:
-                if e.code == "payment_expired" and attempt < self._max_attempts:
+                if e.code in ("payment_expired", "reference_conflict") and attempt < self._max_attempts:
                     attempt += 1
                     continue
                 raise

@@ -119,10 +119,10 @@ class FakeGateway:
             return _err(422, "invalid_amount")
         existing = next((p for p in self.payments.values() if p["reference"] == body["reference"]), None)
         if existing:
-            if existing["status"] == "expired":
-                return _err(409, "payment_expired")
             if existing["amount"] != body["amount"]:
                 return _err(409, "reference_conflict")
+            if existing["status"] == "expired":
+                return _err(409, "payment_expired")
             return httpx.Response(200, json=existing)
         pid = f"pay_{uuid.uuid4().hex[:8]}"
         commission = body["amount"] * 2 // 100
