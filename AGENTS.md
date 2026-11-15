@@ -13,7 +13,7 @@ Même API, mêmes règles que le SDK TypeScript `@technas/pay-next` : seuls les 
 ## Installer
 
 ```bash
-pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.5.1"
+pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.6.0"
 ```
 
 
@@ -34,6 +34,7 @@ Créez UNE instance au niveau du module (`pay = TechnasPay()`) : elle lit `TECHN
 | Savoir qu'elle est payée | webhook, `WebhookHandlers(on_completed=...)` |
 | Rattraper un webhook manqué | `pay.get_payment_by_reference(reference)` |
 | Savoir si on peut relancer | `on_expired`, ou `can_retry(pay.get_payment(id))` |
+| Le client change d'offre ou revient plus tard | nouvel essai `retry_reference(facture_id, n + 1)` ; au retour, `pay.get_payment(dernier_paiement_id)` d'abord |
 | Rembourser | `pay.refund(payment_id, amount=?, fees=?, reference=?)` |
 | Noter un remboursement fait hors Technas | `pay.record_external_refund(payment_id, amount=..., method="Flooz")` |
 | Savoir que le remboursement est arrivé | `on_refund` (`refund.completed`, `refund.failed`, `refund.recorded`) |
@@ -122,6 +123,47 @@ Ne réécrivez pas de routes : `pay.app_routes(authorize=..., resolve_order=...,
 - `failed` n'est **pas** définitif : le client peut encore payer sur la même page pendant une heure. Dans `on_failed`, n'annulez rien, n'envoyez pas de nouveau lien.
 - `expired` est définitif. `can_retry(payment)` n'est vrai que là.
 - Expliquez cette règle à l'utilisateur : un client relancé sur `failed` pourrait payer deux fois.
+- Le client choisit lui-même une AUTRE offre (autre montant) : c'est un nouvel essai tout de suite, voir la section suivante.
+
+## Le client change d'offre ou revient plus tard
+
+Le client choisit une offre, arrive sur la page de paiement, ne paie pas, puis revient choisir une AUTRE offre (ou revient plus tard). Ce n'est jamais « un paiement existe déjà ».
+
+- **Une référence = un essai.** Nouvelle offre, ou retour après expiration : un NOUVEL essai, avec une nouvelle référence `retry_reference(facture_id, n + 1)` (`n` gardé en base). Réutiliser la référence avec un autre montant lève `reference_conflict` (409) ; celle d'un essai expiré, `payment_expired` (409). Les routes toutes faites (`app_routes`) le font seules.
+- **Une facture n'est payée QUE sur `payment.completed`** (avis signé, `on_completed`). Jamais sur `return_url`, jamais à l'ouverture de la page.
+- **Un essai non payé ne bloque jamais un nouvel essai.** `pending` ou `failed` et le client change d'offre : créez le nouvel essai, ne refusez pas. `expired` : marquez la tentative expirée et laissez recommencer.
+- **Au retour du client**, vérifiez avec `pay.get_payment(dernier_paiement_id)` avant de dire quoi que ce soit ; ne vous fiez jamais seulement à votre base.
+- **Un ancien essai payé APRÈS le nouveau** (le client a payé les deux pages) : n'activez rien deux fois ; remboursez l'essai en trop avec `pay.refund(payment_id)`.
+
+```python
+from technas_pay import retry_reference
+
+def payer(facture, montant):
+    """Au clic « payer » : `montant` est celui de l'offre choisie MAINTENANT."""
+    if facture.dernier_paiement_id:
+        dernier = pay.get_payment(facture.dernier_paiement_id)  # la vérité est chez Technas
+        if dernier.status == "completed":
+            return "deja_payee"
+    # pending, failed, expired ou autre montant : nouvel essai, jamais un refus
+    facture.essai += 1
+    paiement = pay.ask_for_payment(
+        amount=montant,
+        reference=retry_reference(facture.id, facture.essai),
+        customer={"email": facture.email, "name": facture.nom},
+        return_url="https://votre-site.example/merci",
+    )
+    facture.dernier_paiement_id = paiement.id
+    facture.save()
+    return paiement.checkout_url
+
+def on_completed(event):
+    facture = Facture.get(event.payment.reference.rsplit("-", 1)[0])
+    if facture.payee_par and facture.payee_par != event.payment.id:
+        pay.refund(event.payment.id)  # le client a payé deux pages : on rend l'essai en trop
+        return
+    facture.payee_par = event.payment.id  # payée ici, et seulement ici
+    facture.save()
+```
 
 ## Webhooks
 

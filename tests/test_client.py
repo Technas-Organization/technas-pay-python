@@ -86,6 +86,21 @@ def test_une_reference_un_essai(pay):
     assert ask(pay, ref=retry_reference("cmd_1", 2)).id != first.id
 
 
+def test_le_client_change_d_offre_ou_revient_plus_tard(pay, gw):
+    """Le client choisit une offre, ne paie pas, revient plus tard choisir une AUTRE offre : un
+    nouvel essai, jamais un refus. Réutiliser la référence avec un autre montant est un conflit."""
+    first = ask(pay, ref=retry_reference("F", 1), amount=5000)
+    pay.simulate_test_payment(first.id, "expired")
+    assert pay.get_payment(first.id).status == "expired"
+    second = ask(pay, ref=retry_reference("F", 2), amount=7500)
+    assert second.id != first.id and second.status == "pending"
+    sent = [json.loads(r.content) for r in gw.requests if r.method == "POST" and r.url.path == "/v1/payments"]
+    assert [(b["reference"], b["amount"]) for b in sent] == [("F-1", 5000), ("F-2", 7500)]
+    with pytest.raises(TechnasPayError) as e:
+        ask(pay, ref="F-1", amount=7500)
+    assert e.value.code == "reference_conflict" and e.value.status == 409 and not e.value.retryable
+
+
 def test_retry_reference():
     assert retry_reference("CMD-42", 2) == "CMD-42-2"
     with pytest.raises(ValueError):
