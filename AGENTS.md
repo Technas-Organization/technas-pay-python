@@ -124,7 +124,7 @@ Ne réécrivez pas de routes : `pay.app_routes(authorize=..., resolve_order=...,
 ## Rembourser
 
 - `pay.refund(payment_id)` rembourse tout ce qui reste ; `amount=` une partie. L'argent repart au numéro qui a payé.
-- Plafond : jamais plus que le montant payé. La commission de 2 % n'est pas rendue.
+- Plafond : jamais plus que le montant payé. La commission Technas n'est pas rendue.
 - `fees="partner"` (défaut : le client reçoit tout) ou `"customer"` (frais retirés de `sent_amount`).
 - Rejouer le même appel ne rembourse pas deux fois. Deux remboursements partiels identiques voulus : une `reference` chacun.
 - `insufficient_balance` : `error.details.missing_amount` ; `top_up_balance` puis rappeler `refund`.
