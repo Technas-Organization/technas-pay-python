@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from technas_pay import AsyncTechnasPay, TechnasPay, TechnasPayError, WebhookHandlers, WebhookVerificationError, sign
+from technas_pay import AsyncTechnasPay, KycRequired, TechnasPay, TechnasPayError, WebhookHandlers, WebhookVerificationError, sign
 
 from .fake_gateway import SECRET, WEBHOOK_SECRET
 
@@ -71,6 +71,9 @@ def test_type_inconnu_acquitte():
      lambda e: e.fx.previous_mode == "none"),
     ("card_account.updated", {"status": "enabled", "can_accept_payments": True}, "on_card_account_updated",
      lambda e: e.card_account.can_accept_payments),
+    ("account.kyc_required", {"reason": "deadline_7d", "collected_xof": 400000, "threshold_xof": 1000000,
+                              "deadline": "2026-11-22T09:00:00Z", "blocked": False, "console_url": "https://c"}, "on_kyc_required",
+     lambda e: e.kyc_required.reason == "deadline_7d" and e.kyc_required.console_url == "https://c"),
     ("payment.expired", {"id": "p", "reference": "r-1", "status": "expired", "amount": 1, "currency": "XOF"}, "on_expired",
      lambda e: e.payment.status == "expired"),
     ("payment.failed", {"id": "p", "reference": "r-1", "status": "failed", "amount": 1, "currency": "XOF"}, "on_failed",
@@ -120,3 +123,18 @@ async def test_client_async_accepte_fonctions_sync_et_async():
     await pay.handle_webhook(EVENT, sign(EVENT, WEBHOOK_SECRET), WebhookHandlers(on_completed=lambda e: seen.append("sync")))
     assert seen == ["evt_1", "sync"]
     await pay.aclose()
+
+
+def test_avis_kyc_required_signe_contenu_type():
+    data = {"reason": "amount_80", "collected_xof": 800000, "threshold_xof": 1000000,
+            "deadline": "2026-11-22T09:00:00Z", "blocked": False, "console_url": "https://console.technas.test/identite"}
+    body = json.dumps({"id": "evt_kyc", "type": "account.kyc_required", "created_at": "2026-11-15T10:00:00Z", "data": data})
+    seen, other = [], []
+    TechnasPay(SECRET).handle_webhook(body, sign(body, WEBHOOK_SECRET), WebhookHandlers(on_kyc_required=seen.append,
+                                                                                       on_completed=other.append))
+    assert not other and len(seen) == 1
+    assert seen[0].kyc_required == KycRequired(**data) and seen[0].payment is None
+    blocked = json.dumps({"id": "e2", "type": "account.kyc_required", "created_at": "x",
+                          "data": dict(data, reason="blocked", blocked=True, deadline=None)})
+    ev = TechnasPay(SECRET).verify_webhook(blocked, sign(blocked, WEBHOOK_SECRET))
+    assert ev.kyc_required.blocked and ev.kyc_required.reason == "blocked" and ev.kyc_required.deadline is None

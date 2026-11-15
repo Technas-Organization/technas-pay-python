@@ -24,6 +24,7 @@ import httpx
 from ._version import __version__
 from .errors import TechnasPayError, error_from_response
 from .models import (
+    AccountKyc,
     Balance,
     CardAccount,
     CardOnboardingLink,
@@ -350,6 +351,10 @@ class _Base:
         return _Call("GET", "/v1/card/account", None, CardAccount.from_api)
 
     @staticmethod
+    def _get_account_kyc() -> _Call[AccountKyc]:
+        return _Call("GET", "/v1/account/kyc", None, AccountKyc.from_api)
+
+    @staticmethod
     def _get_card_dashboard_link() -> _Call[str]:
         return _Call("POST", "/v1/card/dashboard-link", {}, lambda raw: raw["url"])
 
@@ -523,6 +528,11 @@ class TechnasPay(_Base):
     def get_balance(self) -> List[Balance]:
         return self._run(self._get_balance())
 
+    def get_account_kyc(self) -> AccountKyc:
+        """Le seuil d'identité de votre compte, à montrer au marchand (``stage``, ``collected_xof``,
+        ``threshold_xof``, ``deadline``, ``console_url``). Les chiffres viennent d'ici : jamais en dur."""
+        return self._run(self._get_account_kyc())
+
     def get_settlements(self) -> List[Settlement]:
         return self._run(self._get_settlements())
 
@@ -645,6 +655,9 @@ class AsyncTechnasPay(_Base):
 
     async def get_balance(self) -> List[Balance]:
         return await self._run(self._get_balance())
+
+    async def get_account_kyc(self) -> AccountKyc:
+        return await self._run(self._get_account_kyc())
 
     async def get_settlements(self) -> List[Settlement]:
         return await self._run(self._get_settlements())

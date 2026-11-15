@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.0 — 2026-11-15
+
+Seuil d'identité : `get_account_kyc()` (`GET /v1/account/kyc`) rend un `AccountKyc` (`stage`, `level`, `collected_xof`, `threshold_xof`, `grace_days`, `deadline`, `console_url`…). Avis `account.kyc_required` : fonction `on_kyc_required`, contenu typé `event.kyc_required` (`KycRequired`). Erreurs `kyc_required` et `contract_required` (409, non rejouables) : `details.console_url` et `details.version`. Les valeurs inconnues de `stage`, `level` et `reason` sont gardées telles quelles.
+
 ## 0.4.2 — 2026-11-15
 
 Remboursement par carte : `Refund.kind` vaut désormais `"card"` (valeurs : `"payout"` | `"external"` | `"card"`). Pendant la transition, un `"stripe"` encore renvoyé par l'API est lu comme `"card"`. Documentation : carte à 1 % (plus les frais de votre compte carte), mobile money à 2 % (les frais de l'opérateur sont payés par le client).

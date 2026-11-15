@@ -5,6 +5,7 @@ import httpx
 import pytest
 
 from technas_pay import (
+    AccountKyc,
     AsyncTechnasPay,
     PayoutDestination,
     TechnasPay,
@@ -264,3 +265,72 @@ def test_carte_decimales_devise_et_method(gw):
 def test_refund_kind_stripe_received_is_read_as_card(received, expected):
     from technas_pay.models import Refund
     assert Refund.from_api({"id": "r1", "kind": received}).kind == expected
+
+
+KYC_FULL = {
+    "applies": True, "stage": "soon", "level": "none", "days_elapsed": 23, "warn_from_xof": 800000,
+    "warn_from_date": "2026-11-20T00:00:00Z", "collected_xof": 812500, "threshold_xof": 1000000, "grace_days": 30,
+    "first_collected_at": "2026-10-23T09:00:00Z", "deadline": "2026-11-22T09:00:00Z", "waiver_until": "2026-12-01T00:00:00Z",
+    "blocked": False, "reason": None, "console_url": "https://console.technas.test/identite",
+}
+KYC_NULLS = {
+    "applies": False, "stage": "not_applicable", "level": "none", "days_elapsed": None, "warn_from_xof": 800000,
+    "warn_from_date": None, "collected_xof": 0, "threshold_xof": 1000000, "grace_days": 30, "first_collected_at": None,
+    "deadline": None, "waiver_until": None, "blocked": False, "reason": None, "console_url": "https://console.technas.test/identite",
+}
+
+
+def _kyc_client(body, seen):
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, json=body)
+
+    return TechnasPay(SECRET, base_url=BASE, http_client=httpx.Client(transport=httpx.MockTransport(handler)))
+
+
+def test_get_account_kyc_route_en_tete_et_tous_les_champs():
+    seen = []
+    kyc = _kyc_client(KYC_FULL, seen).get_account_kyc()
+    assert isinstance(kyc, AccountKyc)
+    assert seen[0].method == "GET" and seen[0].url.path == "/v1/account/kyc"
+    assert seen[0].headers["authorization"] == f"Bearer {API_KEY}" and not seen[0].content
+    assert kyc == AccountKyc(**KYC_FULL)
+
+
+def test_get_account_kyc_champs_nuls():
+    kyc = _kyc_client(KYC_NULLS, []).get_account_kyc()
+    assert kyc == AccountKyc(**KYC_NULLS)
+    assert kyc.days_elapsed is None and kyc.deadline is None and kyc.first_collected_at is None
+
+
+def test_get_account_kyc_valeurs_inconnues_gardees():
+    body = dict(KYC_FULL, stage="paused", level="enhanced", reason="volume", blocked=True)
+    kyc = _kyc_client(body, []).get_account_kyc()
+    assert (kyc.stage, kyc.level, kyc.reason, kyc.blocked) == ("paused", "enhanced", "volume", True)
+
+
+async def test_get_account_kyc_async():
+    async def handler(request):
+        assert request.url.path == "/v1/account/kyc" and request.headers["authorization"] == f"Bearer {API_KEY}"
+        return httpx.Response(200, json=KYC_FULL)
+
+    async with AsyncTechnasPay(SECRET, base_url=BASE, http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler))) as pay:
+        assert (await pay.get_account_kyc()).threshold_xof == 1000000
+
+
+def test_erreur_kyc_required_et_contract_required():
+    replies = [
+        httpx.Response(409, json={"code": "kyc_required", "message": "m", "reason": "amount",
+                                  "console_url": "https://console.technas.test/identite"}),
+        httpx.Response(409, json={"code": "contract_required", "message": "m", "version": "2026-11",
+                                  "console_url": "https://console.technas.test/contrat"}),
+    ]
+    pay = TechnasPay(SECRET, base_url=BASE, http_client=httpx.Client(transport=httpx.MockTransport(lambda r: replies.pop(0))))
+    with pytest.raises(TechnasPayError) as e:
+        ask(pay)
+    assert e.value.code == "kyc_required" and e.value.status == 409 and not e.value.retryable
+    assert e.value.details.console_url == "https://console.technas.test/identite" and e.value.details.reason == "amount"
+    with pytest.raises(TechnasPayError) as e:
+        ask(pay)
+    assert e.value.code == "contract_required" and not e.value.retryable
+    assert e.value.details.version == "2026-11" and e.value.details.console_url == "https://console.technas.test/contrat"

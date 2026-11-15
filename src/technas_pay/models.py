@@ -414,6 +414,50 @@ class CardAccount:
 
 
 @dataclass(frozen=True)
+class AccountKyc:
+    """Le seuil d'identité de votre compte (``get_account_kyc``), à montrer au marchand, pas au client.
+
+    En réel, un compte sans pièce d'identité vérifiée voit ses NOUVEAUX paiements mobile money
+    refusés (``kyc_required``) au-delà de ``threshold_xof`` F CFA encaissés en cumul, ou
+    ``grace_days`` jours après son premier paiement réel encaissé. Lisez ces chiffres ici, ne les
+    écrivez jamais en dur. Le responsable dépose sa pièce sur ``console_url``.
+
+    ``stage`` : ``ok``, ``soon`` (seuil proche), ``blocked``, ``verified``, ``not_applicable``.
+    ``level`` : ``none``, ``identity``, ``business``. ``reason`` (si bloqué) : ``amount`` ou
+    ``duration``. Une valeur que cette version ne connaît pas est gardée telle quelle.
+    """
+
+    applies: bool
+    stage: str
+    level: str
+    days_elapsed: Optional[int]
+    warn_from_xof: int
+    warn_from_date: Optional[str]
+    collected_xof: int
+    threshold_xof: int
+    grace_days: int
+    first_collected_at: Optional[str]
+    deadline: Optional[str]
+    waiver_until: Optional[str]
+    blocked: bool
+    reason: Optional[str]
+    console_url: Optional[str]
+
+    @classmethod
+    def from_api(cls, raw: Any) -> "AccountKyc":
+        raw = raw or {}
+        return cls(
+            applies=bool(raw.get("applies")), stage=raw.get("stage"), level=raw.get("level"),
+            days_elapsed=raw.get("days_elapsed"), warn_from_xof=raw.get("warn_from_xof"),
+            warn_from_date=raw.get("warn_from_date"), collected_xof=raw.get("collected_xof"),
+            threshold_xof=raw.get("threshold_xof"), grace_days=raw.get("grace_days"),
+            first_collected_at=raw.get("first_collected_at"), deadline=raw.get("deadline"),
+            waiver_until=raw.get("waiver_until"), blocked=bool(raw.get("blocked")),
+            reason=raw.get("reason"), console_url=raw.get("console_url"),
+        )
+
+
+@dataclass(frozen=True)
 class CardOnboardingLink:
     #: À ouvrir par le RESPONSABLE du compte (pas le développeur). Expire vite : à générer au clic.
     url: str

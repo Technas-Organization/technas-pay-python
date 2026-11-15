@@ -14,7 +14,10 @@ class ErrorDetails:
       avec ``top_up_balance``, puis rappelez ``refund``) ;
     - ``refund_exceeds_payment`` : ``refundable_amount`` ;
     - ``country_not_available`` : ``reason`` (``no_payout_number``…) ;
-    - ``risk_not_accepted`` : ``risk``, le texte à montrer à l'utilisateur.
+    - ``risk_not_accepted`` : ``risk``, le texte à montrer à l'utilisateur ;
+    - ``kyc_required`` : ``console_url`` (où le responsable dépose sa pièce d'identité) et
+      ``reason`` (``amount`` ou ``duration``) ;
+    - ``contract_required`` : ``version`` (le contrat à accepter dans la console) et ``console_url``.
     """
 
     missing_amount: Optional[float] = None
@@ -24,6 +27,10 @@ class ErrorDetails:
     risk: Optional[str] = None
     #: ``card_account_not_ready`` : où en est votre compte carte (``not_started``, ``onboarding``…).
     account_status: Optional[str] = None
+    #: ``kyc_required``, ``contract_required`` : la page de la console où agir.
+    console_url: Optional[str] = None
+    #: ``contract_required`` : la version du contrat à accepter dans la console.
+    version: Optional[str] = None
 
 
 class TechnasPayError(Exception):
@@ -32,6 +39,11 @@ class TechnasPayError(Exception):
     ``code`` est stable : c'est lui qu'il faut tester (``payment_expired``, ``reference_conflict``,
     ``risk_not_accepted``, ``fx_mode_unavailable``…). ``retryable`` dit si refaire LE MÊME appel,
     avec la même référence, a du sens.
+
+    ``kyc_required`` (409) : seuil d'identité dépassé, les NOUVEAUX paiements mobile money sont
+    refusés. Ne réessayez pas : proposez la carte, ou dites au client que le mobile money n'est pas
+    disponible pour le moment ; le responsable dépose sa pièce sur ``details.console_url``.
+    ``contract_required`` (409) : le responsable accepte le contrat ``details.version`` dans la console.
 
     ``payment_expired`` : la référence est celle d'un essai expiré. Ne réessayez pas le même appel :
     créez un nouveau paiement avec une NOUVELLE référence (``retry_reference``).
@@ -82,6 +94,8 @@ def error_from_response(status: int, data: Any) -> TechnasPayError:
             reason=data.get("reason"),
             risk=data.get("risk"),
             account_status=data.get("account_status"),
+            console_url=data.get("console_url"),
+            version=data.get("version"),
         ),
     )
 

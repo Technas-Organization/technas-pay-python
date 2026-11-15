@@ -13,7 +13,7 @@ C'est la même API que le SDK TypeScript [`@technas/pay-next`](https://github.co
 ## 1. Installer
 
 ```bash
-pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.4.2"
+pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.5.0"
 ```
 
 Seule dépendance : `httpx`. Python 3.9 ou plus récent.
@@ -72,7 +72,7 @@ return 200, result.body
 
 Exemples complets, testés : [FastAPI](examples/fastapi_app.py), [Flask](examples/flask_app.py), [Django](examples/django_app/views.py).
 
-Fonctions disponibles : `on_completed`, `on_failed` (pas définitif), `on_expired` (définitif), `on_refund`, `on_top_up`, `on_payout_destination`, `on_balance_converted`, `on_fx_mode_updated`. Un type inconnu est acquitté sans rien appeler. Une exception dans votre fonction doit remonter : Technas relivrera.
+Fonctions disponibles : `on_completed`, `on_failed` (pas définitif), `on_expired` (définitif), `on_refund`, `on_top_up`, `on_payout_destination`, `on_balance_converted`, `on_fx_mode_updated`, `on_card_account_updated`, `on_kyc_required` (seuil d'identité, voir plus bas). Un type inconnu est acquitté sans rien appeler. Une exception dans votre fonction doit remonter : Technas relivrera.
 
 ## Pour une app mobile : les routes toutes faites
 
@@ -106,6 +106,7 @@ Routes : `GET /methods?orderId=`, `POST /payments` `{orderId}`, `GET /payments/{
 | `get_refund(id)` | Statut d'un remboursement |
 | `top_up_balance(amount=, currency=, return_url=?)` | Recharger le solde (ouvrir `checkout_url`) |
 | `get_balance()`, `get_settlements()` | Solde par devise, reversements |
+| `get_account_kyc()` | Seuil d'identité du compte (à montrer au marchand) |
 | `get_fx_mode()`, `set_fx_mode(mode=, accept_risk=, markup_pct=?)` | Clients hors zone franc CFA (option à risque) |
 | `set_country_rules(allowed=?, excluded=?)` | Où vous vendez |
 | `get_payout_networks(country)`, `get_payout_destination()`, `set_payout_destination(...)` | Numéro de reversement |
@@ -133,7 +134,21 @@ except TechnasPayError as e:
         raise
 ```
 
+`kyc_required` (409) : seuil d'identité dépassé, les nouveaux paiements mobile money sont refusés. Ne réessayez jamais : proposez la carte, ou dites au client que le mobile money n'est pas disponible pour le moment. `e.details.console_url` : où le responsable dépose sa pièce ; `e.details.reason` : `amount` ou `duration`. `contract_required` (409) : le responsable accepte le contrat `e.details.version` dans la console (`e.details.console_url`). Aucun des deux n'est `retryable`.
+
 La liste complète des codes et quoi faire est dans [AGENTS.md](AGENTS.md#erreurs).
+
+## Seuil d'identité
+
+En réel, un compte sans pièce d'identité vérifiée voit ses **nouveaux** paiements mobile money refusés (`kyc_required`) au-delà de 1 000 000 F CFA encaissés en cumul, ou 30 jours après son premier paiement réel encaissé. Rien de ce qui existe n'est bloqué : paiement en cours, remboursement, reversement, lecture. La carte n'est pas concernée. Le responsable dépose sa pièce dans la console (`console_url`).
+
+```python
+kyc = pay.get_account_kyc()   # à montrer au marchand, jamais au client final
+if kyc.stage in ("soon", "blocked"):
+    show_banner(f"{kyc.collected_xof} / {kyc.threshold_xof} F CFA, échéance {kyc.deadline}", kyc.console_url)
+```
+
+Les chiffres (seuil, délai) viennent de l'API (`threshold_xof`, `grace_days`) : ne les écrivez jamais en dur. Branchez `on_kyc_required` pour prévenir le responsable : l'avis `account.kyc_required` part à 80 % du seuil (`reason="amount_80"`), 7 jours avant l'échéance (`"deadline_7d"`), puis au premier refus (`"blocked"`), avec `event.kyc_required.collected_xof`, `threshold_xof`, `deadline`, `blocked`, `console_url`.
 
 ## La règle de relance
 
