@@ -517,7 +517,7 @@ class TechnasPay(_Base):
         return self._run(self._get_card_account())
 
     def get_card_dashboard_link(self) -> str:
-        """https://dashboard.stripe.com/ : le responsable s'y connecte avec SES identifiants Stripe."""
+        """Le tableau de bord de votre compte carte : le responsable s'y connecte avec SES identifiants."""
         return self._run(self._get_card_dashboard_link())
 
     def get_balance(self) -> List[Balance]:

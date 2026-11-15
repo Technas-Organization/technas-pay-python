@@ -1,8 +1,12 @@
 # Changelog
 
+## 0.4.2 — 2026-11-15
+
+Remboursement par carte : `Refund.kind` vaut désormais `"card"` (valeurs : `"payout"` | `"external"` | `"card"`). Pendant la transition, un `"stripe"` encore renvoyé par l'API est lu comme `"card"`. Documentation : carte à 1 % (plus les frais de votre compte carte), mobile money à 2 % (les frais de l'opérateur sont payés par le client).
+
 ## 0.4.0 — 2026-11-15
 
-Paiement par carte : `ask_for_payment(method="card", currency=...)` (décimales permises), `start_card_onboarding`, `get_card_account`, `get_card_dashboard_link` (https://dashboard.stripe.com/), `card_account_not_ready` (`details.account_status`), `on_card_account_updated`, `Payment.method`, remboursement `kind == "stripe"`. Routes de l'app : `card=True`, `authorize_admin` (`GET /card/account`, `POST /card/onboarding`), `POST /payments {method: "card"}` (références `orderId-card-N`). `to_app_json` porte `method`. Contrat v1 : 23 cas.
+Paiement par carte : `ask_for_payment(method="card", currency=...)` (décimales permises), `start_card_onboarding`, `get_card_account`, `get_card_dashboard_link` (tableau de bord du compte carte), `card_account_not_ready` (`details.account_status`), `on_card_account_updated`, `Payment.method`, remboursement par carte (`kind`, voir 0.4.2). Routes de l'app : `card=True`, `authorize_admin` (`GET /card/account`, `POST /card/onboarding`), `POST /payments {method: "card"}` (références `orderId-card-N`). `to_app_json` porte `method`. Contrat v1 : 23 cas.
 
 ## 0.3.0 — 2026-11-15
 

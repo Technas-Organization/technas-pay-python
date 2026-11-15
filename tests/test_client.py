@@ -257,3 +257,10 @@ def test_carte_decimales_devise_et_method(gw):
         pay.start_card_onboarding(return_url="https://a", refresh_url="https://b", country="fr")
     assert e.value.code == "card_account_not_ready" and e.value.details.account_status == "onboarding"
     assert calls[-1]["country"] == "FR"
+
+
+@pytest.mark.parametrize("received, expected", [("stripe", "card"), ("card", "card"),
+                                                ("payout", "payout"), ("external", "external"), (None, "payout")])
+def test_refund_kind_stripe_received_is_read_as_card(received, expected):
+    from technas_pay.models import Refund
+    assert Refund.from_api({"id": "r1", "kind": received}).kind == expected
