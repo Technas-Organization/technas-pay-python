@@ -1,6 +1,6 @@
 # technas-pay (Python) : règles pour un agent de code
 
-Consignes pour un assistant de code (Codex, Claude Code…). Appliquez-les dans l'application de l'utilisateur, pas dans ce dépôt. Le README détaille chaque fonction ; des exemples complets sont dans [`examples/`](examples) (FastAPI, Flask, Django). Ce fichier est aussi livré dans le paquet : `python -c "import technas_pay, pathlib; print(pathlib.Path(technas_pay.__file__).with_name('AGENTS.md'))"`.
+Consignes pour un assistant de code. Appliquez-les dans l'application de l'utilisateur, pas dans ce dépôt. Le README détaille chaque fonction ; des exemples complets sont dans [`examples/`](examples) (FastAPI, Flask, Django). Ce fichier est aussi livré dans le paquet : `python -c "import technas_pay, pathlib; print(pathlib.Path(technas_pay.__file__).with_name('AGENTS.md'))"`.
 
 Même API, mêmes règles que le SDK TypeScript `@technas/pay-next` : seuls les noms passent en snake_case (`askForPayment` → `ask_for_payment`, `checkoutUrl` → `checkout_url`).
 
@@ -13,7 +13,7 @@ Même API, mêmes règles que le SDK TypeScript `@technas/pay-next` : seuls les 
 ## Installer
 
 ```bash
-pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.4.1"
+pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.4.2"
 ```
 
 
@@ -87,11 +87,11 @@ Ne réécrivez pas de routes : `pay.app_routes(authorize=..., resolve_order=...,
 
 ## Paiement par carte
 
-1. **Compte carte, une fois** : au clic du RESPONSABLE sur « Activer la carte », `link = pay.start_card_onboarding(country="TG", return_url=..., refresh_url=...)`, puis redirigez-le vers `link.url` (il y donne son identité et sa banque ; le lien expire en minutes). `refresh_url` : rappelez la méthode et redirigez de nouveau.
+1. **Compte carte, une fois** : au clic du RESPONSABLE sur « Activer la carte », `link = pay.start_card_onboarding(country="TG", return_url=..., refresh_url=...)`, puis redirigez-le vers `link.url` : il y donne son identité et sa banque sur la page sécurisée de notre partenaire carte (Stripe), qui vous fera accepter son contrat (le lien expire en minutes). `refresh_url` : rappelez la méthode et redirigez de nouveau.
 2. **Attendez `pay.get_card_account().can_accept_payments`** (ou le webhook `on_card_account_updated`). Avant, `method="card"` lève `card_account_not_ready` (`error.details.account_status`).
 3. **Faire payer** : `pay.ask_for_payment(method="card", amount=12.5, currency="EUR", ...)`. Devise obligatoire, décimales permises (jamais × 100).
-4. **L'argent va directement sur le compte carte**, commission Technas déjà retirée : il n'apparaît pas dans `get_balance()`. Un remboursement repart sur la carte depuis ce compte (`refund.kind == "stripe"`).
-5. **Tableau de bord** (virements, litiges) : `pay.get_card_dashboard_link()` → https://dashboard.stripe.com/, où le responsable se connecte avec SES identifiants Stripe.
+4. **L'argent va directement sur le compte carte**, commission Technas déjà retirée : il n'apparaît pas dans `get_balance()`. Un remboursement repart sur la carte depuis ce compte (`refund.kind == "card"`).
+5. **Tableau de bord** (virements, litiges) : `pay.get_card_dashboard_link()` → le tableau de bord de votre compte carte, où le responsable se connecte avec SES identifiants.
 6. **App mobile** : `pay.app_routes(..., card=True, authorize_admin=...)` ; `/methods` n'ouvre la carte que si le compte est prêt et que `resolve_order` rend une `currency`.
 
 ## Sécurité
