@@ -138,3 +138,24 @@ def test_avis_kyc_required_signe_contenu_type():
                           "data": dict(data, reason="blocked", blocked=True, deadline=None)})
     ev = TechnasPay(SECRET).verify_webhook(blocked, sign(blocked, WEBHOOK_SECRET))
     assert ev.kyc_required.blocked and ev.kyc_required.reason == "blocked" and ev.kyc_required.deadline is None
+    # Avis ancien (sans l'état du compte) : les nouveaux champs valent None.
+    assert seen[0].kyc_required.stage is None and seen[0].kyc_required.block_reason is None
+    assert seen[0].kyc_required.days_elapsed is None and seen[0].kyc_required.grace_days is None
+    assert seen[0].kyc_required.first_collected_at is None
+
+
+def test_avis_kyc_required_porte_l_etat_du_compte():
+    data = {"reason": "blocked", "collected_xof": 1000000, "threshold_xof": 1000000, "deadline": None,
+            "blocked": True, "console_url": "https://console.technas.test/identite",
+            "stage": "blocked", "block_reason": "duration", "days_elapsed": 31, "grace_days": 30,
+            "first_collected_at": "2026-10-15T09:00:00Z"}
+    body = json.dumps({"id": "evt_kyc2", "type": "account.kyc_required", "created_at": "x", "data": data})
+    k = TechnasPay(SECRET).verify_webhook(body, sign(body, WEBHOOK_SECRET)).kyc_required
+    assert k == KycRequired(**data)
+    assert (k.stage, k.block_reason, k.days_elapsed, k.grace_days, k.first_collected_at) == (
+        "blocked", "duration", 31, 30, "2026-10-15T09:00:00Z")
+    nuls = json.dumps({"id": "evt_kyc3", "type": "account.kyc_required", "created_at": "x",
+                       "data": dict(data, stage="ok", block_reason=None, days_elapsed=None,
+                                    grace_days=None, first_collected_at=None)})
+    k = TechnasPay(SECRET).verify_webhook(nuls, sign(nuls, WEBHOOK_SECRET)).kyc_required
+    assert k.stage == "ok" and k.block_reason is None and k.days_elapsed is None and k.first_collected_at is None

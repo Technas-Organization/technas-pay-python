@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1 — 2026-11-15
+
+Avis `account.kyc_required` : `KycRequired` porte aussi l'état du compte, comme `get_account_kyc()` : `stage`, `block_reason` (`amount` | `duration`), `days_elapsed`, `grace_days`, `first_collected_at`. Tous facultatifs (`None` sur un avis plus ancien). `reason` ne change pas de sens.
+
 ## 0.5.0 — 2026-11-15
 
 Seuil d'identité : `get_account_kyc()` (`GET /v1/account/kyc`) rend un `AccountKyc` (`stage`, `level`, `collected_xof`, `threshold_xof`, `grace_days`, `deadline`, `console_url`…). Avis `account.kyc_required` : fonction `on_kyc_required`, contenu typé `event.kyc_required` (`KycRequired`). Erreurs `kyc_required` et `contract_required` (409, non rejouables) : `details.console_url` et `details.version`. Les valeurs inconnues de `stage`, `level` et `reason` sont gardées telles quelles.
