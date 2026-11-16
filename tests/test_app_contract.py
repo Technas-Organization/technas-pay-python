@@ -25,6 +25,7 @@ class Gateway:
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.calls.append({"method": request.method, "path": request.url.path,
+                           "query": dict(request.url.params),
                            "body": json.loads(request.content) if request.content else None})
         assert self.queue, "appel imprévu à la passerelle"
         nxt = self.queue.pop(0)
@@ -63,6 +64,12 @@ def _check(case, response, gw):
         assert (call["method"], call["path"]) == (exp["method"], exp["path"])
         for k, v in (exp.get("body_includes") or {}).items():
             assert call["body"][k] == v, k
+        for k, v in (exp.get("query_includes") or {}).items():
+            assert call["query"].get(k) == v, k
+
+
+def test_le_contrat_a_31_cas():
+    assert len(CONTRACT["cases"]) == 31
 
 
 @pytest.mark.parametrize("case", CONTRACT["cases"], ids=[c["name"] for c in CONTRACT["cases"]])
@@ -94,6 +101,7 @@ def test_webhook_signe_et_refuse():
 
 
 FIRST = CONTRACT["cases"][0]
+CANCEL = next(c for c in CONTRACT["cases"] if c["request"]["path"] == "/payments/pay_1/cancel" and c["user"])
 
 
 def _async_pay(case):
@@ -128,6 +136,21 @@ def test_fastapi_router():
     assert r.json() == methods["expect"]["body"]
 
 
+def _cancel_routes(pay):
+    return pay.app_routes(authorize=lambda req: "u1", resolve_order=lambda oid, u: CANCEL["orders"].get(oid))
+
+
+def test_fastapi_router_annulation():
+    pytest.importorskip("fastapi")
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.include_router(_cancel_routes(_async_pay(CANCEL)).fastapi_router())
+    r = TestClient(app).post("/api/technas-pay/payments/pay_1/cancel")
+    assert r.status_code == 200 and r.json() == CANCEL["expect"]["body"]
+
+
 def test_flask_blueprint():
     pytest.importorskip("flask")
     from flask import Flask
@@ -138,6 +161,16 @@ def test_flask_blueprint():
     r = app.test_client().post("/api/technas-pay/payments", json={"orderId": "42"})
     assert r.status_code == 200 and r.get_json() == FIRST["expect"]["body"]
     assert app.test_client().post("/api/technas-pay/payments", json={}).status_code == 400
+
+
+def test_flask_blueprint_annulation():
+    pytest.importorskip("flask")
+    from flask import Flask
+
+    app = Flask(__name__)
+    app.register_blueprint(_cancel_routes(_sync_pay(CANCEL)).flask_blueprint())
+    r = app.test_client().post("/api/technas-pay/payments/pay_1/cancel", json={})
+    assert r.status_code == 200 and r.get_json() == CANCEL["expect"]["body"]
 
 
 def test_django_view():
@@ -155,6 +188,9 @@ def test_django_view():
     req = RequestFactory().post("/api/technas-pay/payments", data=json.dumps({"orderId": "42"}), content_type="application/json")
     res = view(req, rest="payments")
     assert res.status_code == 200 and json.loads(res.content) == FIRST["expect"]["body"]
+    cancel = _cancel_routes(_sync_pay(CANCEL)).django_view()
+    res = cancel(RequestFactory().post("/api/technas-pay/payments/pay_1/cancel"), rest="payments/pay_1/cancel")
+    assert res.status_code == 200 and json.loads(res.content) == CANCEL["expect"]["body"]
 
 
 urlpatterns = []

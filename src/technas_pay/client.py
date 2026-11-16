@@ -77,6 +77,13 @@ def _parse_secret(secret: Optional[str]) -> _Secret:
     return _Secret(mode=match.group(1), api_key=match.group(2), webhook_secret=match.group(3))
 
 
+def _payment_segment(payment_id: Any) -> str:
+    """L'identifiant d'un paiement, encodé pour le chemin ; vide ou absent : refusé avant tout appel."""
+    if not isinstance(payment_id, str) or payment_id == "":
+        raise TechnasPayError("invalid_request", "Identifiant de paiement invalide")
+    return quote(payment_id, safe="")
+
+
 def _positive_amount(value: Any) -> None:
     """Positif, décimales permises (carte : 12.5 = 12,50 €)."""
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value or value <= 0 or value == float("inf"):
@@ -214,7 +221,11 @@ class _Base:
 
     @staticmethod
     def _get_payment(payment_id: str) -> _Call[Payment]:
-        return _Call("GET", f"/v1/payments/{quote(payment_id, safe='')}", None, Payment.from_api)
+        return _Call("GET", f"/v1/payments/{_payment_segment(payment_id)}", None, Payment.from_api)
+
+    @staticmethod
+    def _cancel_payment(payment_id: str) -> _Call[Payment]:
+        return _Call("POST", f"/v1/payments/{_payment_segment(payment_id)}/cancel", {}, Payment.from_api)
 
     @staticmethod
     def _get_payment_by_reference(reference: str) -> _Call[Payment]:
@@ -469,6 +480,17 @@ class TechnasPay(_Base):
     def get_payment(self, payment_id: str) -> Payment:
         return self._run(self._get_payment(payment_id))
 
+    def cancel_payment(self, payment_id: str) -> Payment:
+        """Annule DÉFINITIVEMENT un paiement que personne n'a commencé à payer (le client change
+        d'offre) : rend le paiement, ``status`` ``expired``, ``checkout_url`` ``None``,
+        ``canceled_at`` posé. Rejouer rend le même résultat.
+
+        ``payment_in_progress`` (409, rejouable) : une demande est en cours chez l'opérateur, ne créez
+        PAS de second paiement, attendez l'avis de l'issue. ``payment_already_completed`` (409) : le
+        client a payé, relisez le paiement et ne créez rien.
+        """
+        return self._run(self._cancel_payment(payment_id))
+
     def get_payment_by_reference(self, reference: str) -> Payment:
         """Pour rattraper un webhook manqué."""
         return self._run(self._get_payment_by_reference(reference))
@@ -607,6 +629,10 @@ class AsyncTechnasPay(_Base):
 
     async def get_payment(self, payment_id: str) -> Payment:
         return await self._run(self._get_payment(payment_id))
+
+    async def cancel_payment(self, payment_id: str) -> Payment:
+        """Voir ``TechnasPay.cancel_payment``."""
+        return await self._run(self._cancel_payment(payment_id))
 
     async def get_payment_by_reference(self, reference: str) -> Payment:
         return await self._run(self._get_payment_by_reference(reference))

@@ -108,6 +108,7 @@ def _as_order(raw: Any) -> AppOrder:
 
 
 _PAYMENT_PATH = re.compile(r"^/payments/([^/]+)$")
+_CANCEL_PATH = re.compile(r"^/payments/([^/]+)/cancel$")
 
 
 class AppRoutes:
@@ -146,9 +147,11 @@ class AppRoutes:
         return {"method": "card", "available": False, "reason": "card_account_not_ready"}
 
     async def _start(self, order_id: str, order: AppOrder, method: str = "mobile_money") -> Any:
-        # Une référence = un essai : `order_id-1`, `-2`… Un essai expiré (payment_expired) ou d'un
-        # autre montant (reference_conflict : le client a changé d'offre) est sauté : essai suivant,
-        # jamais un refus. Un essai en cours (ou payé) au même montant est rendu tel quel.
+        # Une référence = un essai : `order_id-1`, `-2`… Un essai expiré (payment_expired) est sauté.
+        # Un essai d'un autre montant (reference_conflict : le client a changé d'offre) est annulé
+        # s'il est encore ouvert, puis l'essai suivant est créé ; payé ou demande en cours chez
+        # l'opérateur : AUCUN second paiement, l'erreur remonte à l'app. Un essai en cours (ou payé)
+        # au même montant est rendu tel quel.
         attempt = 1
         while True:
             options: Dict[str, Any] = {"metadata": {**order.metadata, "order_id": order_id}}
@@ -168,10 +171,31 @@ class AppRoutes:
                     **options,
                 ))
             except TechnasPayError as e:
-                if e.code in ("payment_expired", "reference_conflict") and attempt < self._max_attempts:
-                    attempt += 1
-                    continue
-                raise
+                if attempt >= self._max_attempts or e.code not in ("payment_expired", "reference_conflict"):
+                    raise
+                if e.code == "reference_conflict":
+                    await self._close_previous(f"{order_id}-card-{attempt}" if method == "card" else retry_reference(order_id, attempt))
+                attempt += 1
+
+    async def _close_previous(self, reference: str) -> None:
+        """L'ancien essai (autre montant) : annulé s'il est encore ouvert. Payé → 409
+        ``payment_already_completed`` ; ``payment_in_progress`` à l'annulation remonte tel quel ; un 404
+        à l'annulation (serveur qui ne l'a pas encore) laisse passer à l'essai suivant."""
+        try:
+            previous = await _maybe(self._pay.get_payment_by_reference(reference))
+        except TechnasPayError as e:
+            if e.code == "payment_not_found":
+                return
+            raise
+        if previous.status == "completed":
+            raise TechnasPayError("payment_already_completed", "L'essai précédent de cette commande est déjà payé", 409)
+        if previous.status != "expired":
+            try:
+                await _maybe(self._pay.cancel_payment(previous.id))
+            except TechnasPayError as e:
+                # Serveur sans l'annulation (404, quel que soit le code) : essai suivant, comme avant.
+                if e.status != 404:
+                    raise
 
     async def handle(self, req: AppRequest) -> AppResponse:
         """Le cœur, sans framework."""
@@ -193,7 +217,8 @@ class AppRoutes:
         if (method == "GET" and path == "/card/account") or (method == "POST" and path == "/card/onboarding"):
             return await self._card_routes(req, path)
 
-        known = (method == "GET" and (path == "/methods" or _PAYMENT_PATH.match(path))) or (method == "POST" and path == "/payments")
+        cancel = _CANCEL_PATH.match(path) if method == "POST" else None
+        known = (method == "GET" and (path == "/methods" or _PAYMENT_PATH.match(path))) or (method == "POST" and (path == "/payments" or cancel))
         if not known:
             return _err(404, "not_found", "Route inconnue")
 
@@ -240,8 +265,9 @@ class AppRoutes:
                 payment = await self._start(order_id, order, pay_method)
                 return AppResponse(200, {"payment": to_app_json(payment)})
 
-            # GET /payments/{id} : seulement si la commande de ce paiement est à cet utilisateur.
-            payment_id = unquote(_PAYMENT_PATH.match(path).group(1))  # type: ignore[union-attr]
+            # GET /payments/{id} et POST /payments/{id}/cancel : seulement si la commande de ce
+            # paiement est à cet utilisateur.
+            payment_id = unquote((cancel or _PAYMENT_PATH.match(path)).group(1))  # type: ignore[union-attr]
             try:
                 payment = await _maybe(self._pay.get_payment(payment_id))
             except TechnasPayError as e:
@@ -250,6 +276,9 @@ class AppRoutes:
                 raise
             if await _maybe(self._resolve(_order_id_of(payment.reference), user)) is None:
                 return _err(404, "payment_not_found", "Paiement introuvable")
+            if cancel:
+                # Le client change d'offre : l'essai affiché est annulé avant d'en démarrer un autre.
+                payment = await _maybe(self._pay.cancel_payment(payment.id))
             return AppResponse(200, {"payment": to_app_json(payment)})
         except TechnasPayError as e:
             return _from_pay_error(e)

@@ -111,6 +111,13 @@ class Payment:
     completed_at: Optional[str]
     expires_at: Optional[str]
     expired_at: Optional[str]
+    #: Quand vous l'avez annulé (``cancel_payment``) ; ``None`` sinon. Un paiement annulé reste ``expired``.
+    canceled_at: Optional[str] = None
+    #: ``canceled_by_partner``, ou ``None``.
+    cancel_reason: Optional[str] = None
+    #: Dans l'avis ``payment.expired`` : ``canceled`` (annulé par vous) ou ``timeout`` (délai
+    #: dépassé) ; ``None`` ailleurs et dans un avis plus ancien.
+    reason: Optional[str] = None
 
     @classmethod
     def from_api(cls, raw: Dict[str, Any]) -> "Payment":
@@ -134,6 +141,9 @@ class Payment:
             completed_at=raw.get("completed_at"),
             expires_at=raw.get("expires_at"),
             expired_at=raw.get("expired_at"),
+            canceled_at=raw.get("canceled_at"),
+            cancel_reason=raw.get("cancel_reason"),
+            reason=raw.get("reason"),
         )
 
 

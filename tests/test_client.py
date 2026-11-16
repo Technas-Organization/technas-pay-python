@@ -349,3 +349,64 @@ def test_erreur_kyc_required_et_contract_required():
         ask(pay)
     assert e.value.code == "contract_required" and not e.value.retryable
     assert e.value.details.version == "2026-11" and e.value.details.console_url == "https://console.technas.test/contrat"
+
+
+ANNULE = {
+    "id": "pay_1", "reference": "F-1", "amount": 5000, "currency": None, "commission": 100, "net_amount": 4900,
+    "status": "expired", "checkout_url": None, "metadata": {}, "test_mode": True,
+    "created_at": "2026-11-15T10:00:00Z", "expires_at": "2026-11-15T11:00:00Z",
+    "canceled_at": "2026-11-16T09:00:00Z", "cancel_reason": "canceled_by_partner",
+}
+
+
+def _sequence(*replies):
+    calls = []
+    queue = list(replies)
+
+    def handler(request):
+        calls.append(request)
+        status, body = queue.pop(0)
+        return httpx.Response(status, json=body)
+
+    return calls, handler
+
+
+def test_annuler_l_ancien_essai_quand_le_client_change_d_offre():
+    calls, handler = _sequence(
+        (200, ANNULE), (200, ANNULE),
+        (409, {"code": "payment_in_progress", "message": "m"}),
+        (409, {"code": "payment_already_completed", "message": "m"}),
+    )
+    pay = TechnasPay(SECRET, base_url=BASE, http_client=httpx.Client(transport=httpx.MockTransport(handler)))
+    p = pay.cancel_payment("pay_1")
+    assert calls[0].method == "POST" and str(calls[0].url) == f"{BASE}/v1/payments/pay_1/cancel"
+    assert calls[0].headers["authorization"] == f"Bearer {API_KEY}"
+    assert p.status == "expired" and p.checkout_url is None
+    assert p.canceled_at == "2026-11-16T09:00:00Z" and p.cancel_reason == "canceled_by_partner"
+    assert can_retry(p)  # un paiement annulé reste expired
+    assert pay.cancel_payment("pay_1").canceled_at == "2026-11-16T09:00:00Z"  # rejouer rend le même résultat
+    with pytest.raises(TechnasPayError) as en_cours:
+        pay.cancel_payment("pay_1")
+    assert en_cours.value.code == "payment_in_progress" and en_cours.value.status == 409 and en_cours.value.retryable
+    with pytest.raises(TechnasPayError) as paye:
+        pay.cancel_payment("pay_1")
+    assert paye.value.code == "payment_already_completed" and paye.value.status == 409 and not paye.value.retryable
+    for invalide in ("", None):
+        with pytest.raises(TechnasPayError) as e:
+            pay.cancel_payment(invalide)
+        assert e.value.code == "invalid_request" and e.value.status == 0
+    assert len(calls) == 4
+
+
+def test_annuler_echappe_l_identifiant(pay, gw):
+    with pytest.raises(TechnasPayError):
+        pay.cancel_payment("../balance")
+    assert gw.requests[-1].url.raw_path == b"/v1/payments/..%2Fbalance/cancel"
+
+
+async def test_annuler_avec_le_client_async():
+    calls, handler = _sequence((200, ANNULE))
+    async with AsyncTechnasPay(SECRET, base_url=BASE, http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler))) as pay:
+        p = await pay.cancel_payment("pay_1")
+    assert calls[0].method == "POST" and calls[0].url.path == "/v1/payments/pay_1/cancel"
+    assert p.cancel_reason == "canceled_by_partner"
