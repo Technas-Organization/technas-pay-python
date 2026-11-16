@@ -42,6 +42,12 @@ class EventPayment:
     fx: Optional[PaymentFx]
     expires_at: Optional[str]
     expired_at: Optional[str]
+    #: ``payment.expired`` : ``canceled`` (annulé par vous, ``cancel_payment``) ou ``timeout`` (délai
+    #: dépassé) ; ``None`` dans un avis plus ancien.
+    reason: Optional[str] = None
+    #: ``payment.expired`` annulé : quand.
+    canceled_at: Optional[str] = None
+    cancel_reason: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -166,6 +172,7 @@ def parse_event(raw: Any) -> Event:
             metadata=d.get("metadata") or {}, completed_at=d.get("completed_at"),
             original_amount=d.get("original_amount"), original_currency=d.get("original_currency"),
             fx=PaymentFx.from_api(d.get("fx")), expires_at=d.get("expires_at"), expired_at=d.get("expired_at"),
+            reason=d.get("reason"), canceled_at=d.get("canceled_at"), cancel_reason=d.get("cancel_reason"),
         ))
     return Event(**base)
 

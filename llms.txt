@@ -6,7 +6,7 @@ Agents de code : lisez d'abord AGENTS.md (méthodes, champs obligatoires, sécur
 
 Une référence = un essai : `retry_reference(order_id, attempt)`. Relancez avec une NOUVELLE référence seulement après payment.expired (`can_retry`), jamais sur failed. Rejouer la référence d'un paiement expiré lève `TechnasPayError` code `payment_expired` (409).
 
-Le client change d'offre ou revient plus tard : nouvel essai `retry_reference(facture_id, n + 1)`, jamais un refus (`reference_conflict` = référence réutilisée avec un autre montant) ; au retour, `get_payment(dernier_paiement_id)` d'abord ; payée seulement sur `payment.completed`, essai payé en trop → `refund`.
+Le client change d'offre ou revient plus tard : `cancel_payment(ancien_id)` puis nouvel essai `retry_reference(facture_id, n + 1)`, jamais un refus (`reference_conflict` = référence réutilisée avec un autre montant) ; si l'annulation répond `payment_in_progress`, aucun second paiement (attendre l'avis) ; `payment_already_completed` : déjà payé, relire, ne rien créer ; routes toutes faites : `POST /payments/{id}/cancel` ; au retour, `get_payment(dernier_paiement_id)` d'abord ; payée seulement sur `payment.completed`, essai payé en trop → `refund`.
 
 Seuil d'identité : `get_account_kyc()` (à montrer au marchand), avis `on_kyc_required`. Sur l'erreur `kyc_required` (409), proposer la carte ou dire au client que le mobile money n'est pas disponible pour le moment, jamais réessayer ; le responsable dépose sa pièce sur `details.console_url`.
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.0 — 2026-11-16
+
+Annuler un paiement : `cancel_payment(id)` (`POST /v1/payments/{id}/cancel`, client sync et async) annule DÉFINITIVEMENT un paiement que personne n'a commencé à payer ; rend le paiement (`status` `expired`, `checkout_url` `None`). Idempotent. `Payment` : `canceled_at`, `cancel_reason` ; `Payment` et `EventPayment` : `reason` (avis `payment.expired` : `canceled` ou `timeout`, `None` dans un avis plus ancien). Nouvelle erreur `payment_already_completed` (409, non rejouable). Routes toutes faites : `POST /payments/{id}/cancel` (même contrôle de propriété que `GET /payments/{id}`), et sur `reference_conflict` l'ancien essai est relu par sa référence puis annulé avant l'essai suivant ; payé ou demande en cours chez l'opérateur : aucun second paiement, l'erreur est rendue à l'app. Si l'annulation répond 404 (serveur qui ne l'a pas encore), le démarrage passe à l'essai suivant comme avant. Contrat v1 : 31 cas (`query_includes` vérifié).
+
 ## 0.6.0 — 2026-11-15
 
 Le client change d'offre ou revient plus tard. Routes toutes faites (`app_routes`) : un `reference_conflict` (la référence d'un essai existe avec un autre montant : le client a changé d'offre) fait passer à l'essai suivant, comme `payment_expired`, dans la même borne `max_attempts` : jamais un refus. Contrat v1 : 24 cas. Documentation : nouvelle section « Le client change d'offre ou revient plus tard » (AGENTS.md, README, llms.txt) avec un exemple ; test de scénario (essai expiré, puis nouvel essai d'un autre montant).

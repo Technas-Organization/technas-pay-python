@@ -13,7 +13,7 @@ C'est la même API que le SDK TypeScript [`@technas/pay-next`](https://github.co
 ## 1. Installer
 
 ```bash
-pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.6.0"
+pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.7.0"
 ```
 
 Seule dépendance : `httpx`. Python 3.9 ou plus récent.
@@ -93,13 +93,14 @@ app.include_router(routes.fastapi_router())          # FastAPI → /api/technas-
 # Django : path("api/technas-pay/<path:rest>", routes.django_view())
 ```
 
-Routes : `GET /methods?orderId=`, `POST /payments` `{orderId}`, `GET /payments/{id}`, `POST /webhook` (adresse à déclarer à Technas). Les crochets peuvent être sync ou async. Les essais expirés sont sautés tout seuls (`42-1`, `42-2`…) : rien à stocker. Contrat : [`contract/app-contract.v1.json`](contract/app-contract.v1.json), rejoué par ce paquet et par le client Flutter.
+Routes : `GET /methods?orderId=`, `POST /payments` `{orderId}`, `GET /payments/{id}`, `POST /payments/{id}/cancel` (le client change d'offre : l'essai affiché est annulé), `POST /webhook` (adresse à déclarer à Technas). Les crochets peuvent être sync ou async. Les essais expirés sont sautés tout seuls (`42-1`, `42-2`…) : rien à stocker. Si la commande a changé de montant, `POST /payments` annule lui-même l'ancien essai encore ouvert avant d'en créer un autre ; s'il est déjà payé (`payment_already_completed`) ou qu'une demande est en cours chez l'opérateur (`payment_in_progress`), aucun second paiement n'est créé et l'erreur est rendue à l'app. Contrat : [`contract/app-contract.v1.json`](contract/app-contract.v1.json), rejoué par ce paquet et par le client Flutter.
 
 ## 4. Tout le reste
 
 | Méthode | Rôle |
 |---|---|
 | `get_payment(id)`, `get_payment_by_reference(ref)` | Statut ; rattraper un webhook manqué |
+| `cancel_payment(id)` | Annuler un paiement que personne n'a commencé à payer (le client change d'offre) |
 | `list_transactions(limit=, status=, cursor=)` | Historique paginé (`next_cursor`) |
 | `refund(payment_id, amount=?, fees="partner"\|"customer", reference=?)` | Rembourser au numéro qui a payé |
 | `record_external_refund(payment_id, amount=, method=, note=?, recorded_by=?)` | Noter un remboursement fait hors Technas |
@@ -128,6 +129,8 @@ try:
 except TechnasPayError as e:
     if e.code == "payment_expired":
         order.attempt += 1          # nouvelle référence, jamais le même appel
+    elif e.code == "payment_already_completed":
+        ...                         # cancel_payment : déjà payé, relire, ne rien créer
     elif e.retryable:
         ...                         # refaire le même appel, mêmes valeurs
     else:
@@ -154,7 +157,7 @@ Les chiffres (seuil, délai) viennent de l'API (`threshold_xof`, `grace_days`) :
 
 **Une référence = un essai.** `failed` n'est pas définitif : le client peut encore payer sur la même page pendant une heure. Ne relancez qu'après `payment.expired`, avec une nouvelle référence (`retry_reference(order_id, attempt + 1)`).
 
-Le client change d'offre ou revient plus tard : c'est un NOUVEL essai (`retry_reference(facture_id, n + 1)`), jamais un refus, même si l'essai précédent est encore `pending` ou `failed`. Réutiliser une référence avec un autre montant lève `reference_conflict` ; les routes toutes faites passent seules à l'essai suivant. Au retour du client, relisez le dernier essai (`get_payment`) avant de dire quoi que ce soit. La facture n'est payée que sur `payment.completed` ; si le client a payé deux pages, remboursez l'essai en trop (`refund`).
+Le client change d'offre ou revient plus tard : c'est un NOUVEL essai (`retry_reference(facture_id, n + 1)`), jamais un refus, même si l'essai précédent est encore `pending` ou `failed`. Autre offre : ANNULEZ d'abord l'ancien essai (`pay.cancel_payment(ancien_id)`), puis créez le nouveau avec une NOUVELLE référence. Si l'annulation répond `payment_in_progress` (une demande est en cours chez l'opérateur), ne créez PAS de second paiement : attendez l'avis de l'issue ; `payment_already_completed` : le client a payé l'ancienne offre, relisez le paiement et ne créez rien. Un paiement annulé reste `expired` (`can_retry` marche tel quel), avec `canceled_at` et `cancel_reason` ; son avis `payment.expired` porte `reason` = `canceled` (`timeout` pour une échéance passée). Réutiliser une référence avec un autre montant lève `reference_conflict` ; les routes toutes faites annulent l'ancien essai et passent seules à l'essai suivant. Au retour du client, relisez le dernier essai (`get_payment`) avant de dire quoi que ce soit. La facture n'est payée que sur `payment.completed` ; si le client a payé deux pages, remboursez l'essai en trop (`refund`).
 
 ```python
 from technas_pay import retry_reference
@@ -165,8 +168,15 @@ def payer(facture, montant):
         dernier = pay.get_payment(facture.dernier_paiement_id)  # la vérité est chez Technas
         if dernier.status == "completed":
             return "deja_payee"
-    # pending, failed, expired ou autre montant : nouvel essai, jamais un refus
-    facture.essai += 1
+        meme_offre = dernier.amount == montant
+        if meme_offre and dernier.status != "expired" and dernier.checkout_url:
+            return dernier.checkout_url  # pending ou failed : même page, le client peut encore payer
+        if dernier.status != "expired":
+            # Autre offre : l'ancien lien est fermé d'abord. payment_in_progress (demande en cours
+            # chez l'opérateur) ou payment_already_completed (déjà payé) remontent : on ne crée
+            # alors AUCUN second paiement.
+            pay.cancel_payment(dernier.id)
+    facture.essai += 1  # nouvel essai, nouvelle référence, jamais un refus
     paiement = pay.ask_for_payment(
         amount=montant,
         reference=retry_reference(facture.id, facture.essai),

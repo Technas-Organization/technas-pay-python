@@ -159,3 +159,17 @@ def test_avis_kyc_required_porte_l_etat_du_compte():
                                     grace_days=None, first_collected_at=None)})
     k = TechnasPay(SECRET).verify_webhook(nuls, sign(nuls, WEBHOOK_SECRET)).kyc_required
     assert k.stage == "ok" and k.block_reason is None and k.days_elapsed is None and k.first_collected_at is None
+
+
+def test_avis_expire_dit_pourquoi():
+    seen = []
+    handlers = WebhookHandlers(on_expired=lambda e: seen.append((e.payment.reason, e.payment.canceled_at)))
+    base = {"id": "p", "reference": "F-1", "status": "expired", "amount": 1, "currency": "XOF"}
+    for data in (
+        {**base, "reason": "canceled", "canceled_at": "2026-11-16T09:00:00Z"},
+        {**base, "reason": "timeout"},
+        base,
+    ):
+        body = json.dumps({"id": "e", "type": "payment.expired", "created_at": "x", "data": data})
+        TechnasPay(SECRET).handle_webhook(body, sign(body, WEBHOOK_SECRET), handlers)
+    assert seen == [("canceled", "2026-11-16T09:00:00Z"), ("timeout", None), (None, None)]
