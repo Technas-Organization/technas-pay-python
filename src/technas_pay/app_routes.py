@@ -109,6 +109,8 @@ def _as_order(raw: Any) -> AppOrder:
 
 _PAYMENT_PATH = re.compile(r"^/payments/([^/]+)$")
 _CANCEL_PATH = re.compile(r"^/payments/([^/]+)/cancel$")
+# Un identifiant de commande ou de paiement : hors de ce motif, « introuvable » sans aucun appel.
+_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
 
 class AppRoutes:
@@ -231,6 +233,8 @@ class AppRoutes:
                 order_id = req.query.get("orderId")
                 if not order_id:
                     return _err(400, "invalid_request", "orderId manquant")
+                if not _ID.fullmatch(order_id):
+                    return _err(404, "order_not_found", "Commande introuvable")
                 raw = await _maybe(self._resolve(order_id, user))
                 if raw is None:
                     return _err(404, "order_not_found", "Commande introuvable")
@@ -251,6 +255,8 @@ class AppRoutes:
                 if not isinstance(order_id, (str, int)) or isinstance(order_id, bool) or str(order_id) == "":
                     return _err(400, "invalid_request", "orderId manquant")
                 order_id = str(order_id)
+                if not _ID.fullmatch(order_id):
+                    return _err(404, "order_not_found", "Commande introuvable")
                 pay_method = body.get("method") or "mobile_money"
                 if pay_method not in ("mobile_money", "card"):
                     return _err(400, "invalid_request", 'method vaut "mobile_money" ou "card"')
@@ -268,6 +274,8 @@ class AppRoutes:
             # GET /payments/{id} et POST /payments/{id}/cancel : seulement si la commande de ce
             # paiement est à cet utilisateur.
             payment_id = unquote((cancel or _PAYMENT_PATH.match(path)).group(1))  # type: ignore[union-attr]
+            if not _ID.fullmatch(payment_id):
+                return _err(404, "payment_not_found", "Paiement introuvable")
             try:
                 payment = await _maybe(self._pay.get_payment(payment_id))
             except TechnasPayError as e:

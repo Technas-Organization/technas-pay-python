@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.1 — 2026-11-16
+
+Sécurité : identifiants validés avant tout appel. Un identifiant mis dans un chemin d'URL (`get_payment`, `cancel_payment`, `refund`, `record_external_refund`, `get_refund`, `simulate_test_payment`, clients sync et async) doit correspondre à `^[A-Za-z0-9_-]{1,128}$` ; sinon erreur `invalid_request` (statut 0, non rejouable), sans aucun appel et sans citer la valeur reçue. Avant, `get_payment("../balance")` partait encodé (`..%2Fbalance`) avec votre clé : un intermédiaire qui décode puis normalise le chemin pouvait viser une autre route. Routes toutes faites : un identifiant de paiement hors de ce motif rend 404 `payment_not_found`, un `orderId` hors de ce motif 404 `order_not_found`, sans appel.
+
 ## 0.7.0 — 2026-11-16
 
 Annuler un paiement : `cancel_payment(id)` (`POST /v1/payments/{id}/cancel`, client sync et async) annule DÉFINITIVEMENT un paiement que personne n'a commencé à payer ; rend le paiement (`status` `expired`, `checkout_url` `None`). Idempotent. `Payment` : `canceled_at`, `cancel_reason` ; `Payment` et `EventPayment` : `reason` (avis `payment.expired` : `canceled` ou `timeout`, `None` dans un avis plus ancien). Nouvelle erreur `payment_already_completed` (409, non rejouable). Routes toutes faites : `POST /payments/{id}/cancel` (même contrôle de propriété que `GET /payments/{id}`), et sur `reference_conflict` l'ancien essai est relu par sa référence puis annulé avant l'essai suivant ; payé ou demande en cours chez l'opérateur : aucun second paiement, l'erreur est rendue à l'app. Si l'annulation répond 404 (serveur qui ne l'a pas encore), le démarrage passe à l'essai suivant comme avant. Contrat v1 : 31 cas (`query_includes` vérifié).

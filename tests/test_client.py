@@ -170,10 +170,57 @@ def test_le_reste_de_la_surface(pay, gw):
     assert rules.allowed is None and rules.excluded == ["NG"]
 
 
-def test_identifiants_echappes_dans_le_chemin(pay, gw):
-    with pytest.raises(TechnasPayError):
-        pay.get_payment("../balance")
-    assert gw.requests[-1].url.raw_path == b"/v1/payments/..%2Fbalance"
+IDENTIFIANTS_INVALIDES = ["../balance", "..", ".", "a/b", "a%2Fb", "", "pay 1", "pay_1\n", "é", "x" * 129, None, 42]
+
+# Toutes les méthodes qui mettent un identifiant dans un chemin d'URL.
+APPELS_AVEC_IDENTIFIANT = {
+    "get_payment": lambda c, i: c.get_payment(i),
+    "cancel_payment": lambda c, i: c.cancel_payment(i),
+    "refund": lambda c, i: c.refund(i, amount=100),
+    "record_external_refund": lambda c, i: c.record_external_refund(i, amount=100, method="Espèces"),
+    "get_refund": lambda c, i: c.get_refund(i),
+    "simulate_test_payment": lambda c, i: c.simulate_test_payment(i, "completed"),
+}
+
+
+@pytest.mark.parametrize("appel", APPELS_AVEC_IDENTIFIANT, ids=list(APPELS_AVEC_IDENTIFIANT))
+@pytest.mark.parametrize("identifiant", IDENTIFIANTS_INVALIDES, ids=repr)
+def test_identifiant_mal_forme_refuse_avant_tout_appel(pay, gw, appel, identifiant):
+    with pytest.raises(TechnasPayError) as e:
+        APPELS_AVEC_IDENTIFIANT[appel](pay, identifiant)
+    assert e.value.code == "invalid_request" and e.value.status == 0 and not e.value.retryable
+    if isinstance(identifiant, str) and identifiant:
+        assert identifiant not in e.value.message
+    assert gw.requests == []
+
+
+@pytest.mark.parametrize("appel", APPELS_AVEC_IDENTIFIANT, ids=list(APPELS_AVEC_IDENTIFIANT))
+async def test_identifiant_mal_forme_refuse_par_le_client_async(appel):
+    calls = []
+    transport = httpx.MockTransport(lambda r: calls.append(r) or httpx.Response(500))
+    async with AsyncTechnasPay(SECRET, base_url=BASE, http_client=httpx.AsyncClient(transport=transport)) as client:
+        for identifiant in IDENTIFIANTS_INVALIDES:
+            with pytest.raises(TechnasPayError) as e:
+                await APPELS_AVEC_IDENTIFIANT[appel](client, identifiant)
+            assert e.value.code == "invalid_request" and e.value.status == 0
+    assert calls == []
+
+
+@pytest.mark.parametrize("identifiant", ["pay_1", "3f2b8c1e-9a4d-4e2b-8f61-0c7d5e9a1b23", "x" * 128])
+def test_identifiant_valide_part_tel_quel(identifiant):
+    seen = []
+
+    def handler(request):
+        seen.append(request.url.raw_path)
+        return httpx.Response(404, json={"code": "payment_not_found", "message": "introuvable"})
+
+    with TechnasPay(SECRET, base_url=BASE, http_client=httpx.Client(transport=httpx.MockTransport(handler))) as client:
+        for appel in (client.get_payment, client.cancel_payment, client.get_refund):
+            with pytest.raises(TechnasPayError) as e:
+                appel(identifiant)
+            assert e.value.code == "payment_not_found"
+    assert seen == [f"/v1/payments/{identifiant}".encode(), f"/v1/payments/{identifiant}/cancel".encode(),
+                    f"/v1/refunds/{identifiant}".encode()]
 
 
 def test_erreurs_reseau_et_serveur_rejouables(gw):
@@ -396,12 +443,6 @@ def test_annuler_l_ancien_essai_quand_le_client_change_d_offre():
             pay.cancel_payment(invalide)
         assert e.value.code == "invalid_request" and e.value.status == 0
     assert len(calls) == 4
-
-
-def test_annuler_echappe_l_identifiant(pay, gw):
-    with pytest.raises(TechnasPayError):
-        pay.cancel_payment("../balance")
-    assert gw.requests[-1].url.raw_path == b"/v1/payments/..%2Fbalance/cancel"
 
 
 async def test_annuler_avec_le_client_async():

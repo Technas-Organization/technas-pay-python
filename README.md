@@ -13,7 +13,7 @@ C'est la même API que le SDK TypeScript [`@technas/pay-next`](https://github.co
 ## 1. Installer
 
 ```bash
-pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.7.0"
+pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.7.1"
 ```
 
 Seule dépendance : `httpx`. Python 3.9 ou plus récent.
