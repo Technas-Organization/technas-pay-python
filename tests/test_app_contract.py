@@ -195,3 +195,33 @@ def test_django_view():
 
 urlpatterns = []
 assert sys  # garde l'import (django lit ROOT_URLCONF sur ce module)
+
+
+@pytest.mark.parametrize("path, query, body, code", [
+    ("/payments/..%2Fbalance", None, None, "payment_not_found"),
+    ("/payments/..%2Fbalance/cancel", None, None, "payment_not_found"),
+    ("/payments/pay%201", None, None, "payment_not_found"),
+    ("/payments/a%252Fb", None, None, "payment_not_found"),
+    ("/payments/" + "x" * 129, None, None, "payment_not_found"),
+    ("/methods", {"orderId": "../42"}, None, "order_not_found"),
+    ("/methods", {"orderId": "42 1"}, None, "order_not_found"),
+    ("/payments", None, {"orderId": "../balance"}, "order_not_found"),
+    ("/payments", None, {"orderId": "a/b"}, "order_not_found"),
+])
+async def test_identifiant_mal_forme_introuvable_sans_appel(path, query, body, code):
+    resolved = []
+    gw = Gateway([])
+
+    def resolve(order_id, user):
+        resolved.append(order_id)
+        return {"amount": 5000}
+
+    method = "GET" if path.startswith("/methods") or (path.startswith("/payments/") and not path.endswith("/cancel")) else "POST"
+    request = AppRequest(method=method, path=path, query=query or {},
+                         raw_body=json.dumps(body).encode() if body is not None else b"")
+    for pay in (AsyncTechnasPay(SECRET, base_url=BASE, http_client=httpx.AsyncClient(transport=httpx.MockTransport(gw.handler))),
+                TechnasPay(SECRET, base_url=BASE, http_client=httpx.Client(transport=httpx.MockTransport(gw.handler)))):
+        routes = pay.app_routes(authorize=lambda req: "u1", resolve_order=resolve, return_url="https://app.test/retour")
+        response = await routes.handle(request)
+        assert response.status == 404 and response.body["code"] == code
+    assert gw.calls == [] and resolved == []

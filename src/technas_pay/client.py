@@ -17,7 +17,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Generic, List, Optional, Sequence, TypeVar, Union
-from urllib.parse import quote, urlencode
+from urllib.parse import urlencode
 
 import httpx
 
@@ -77,11 +77,19 @@ def _parse_secret(secret: Optional[str]) -> _Secret:
     return _Secret(mode=match.group(1), api_key=match.group(2), webhook_secret=match.group(3))
 
 
-def _payment_segment(payment_id: Any) -> str:
-    """L'identifiant d'un paiement, encodé pour le chemin ; vide ou absent : refusé avant tout appel."""
-    if not isinstance(payment_id, str) or payment_id == "":
-        raise TechnasPayError("invalid_request", "Identifiant de paiement invalide")
-    return quote(payment_id, safe="")
+_SEGMENT_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
+
+
+def _segment(identifier: Any) -> str:
+    """Un identifiant mis dans un chemin d'URL, refusé avant tout appel s'il sort de ``[A-Za-z0-9_-]{1,128}``.
+
+    Jamais « . », « .. », « / » ni rien d'encodé : un proxy qui décode ``%2F`` puis normalise le
+    chemin enverrait ``../balance`` vers une autre route, avec votre clé. Le message ne cite pas la
+    valeur reçue.
+    """
+    if not isinstance(identifier, str) or not _SEGMENT_RE.fullmatch(identifier):
+        raise TechnasPayError("invalid_request", "Identifiant invalide")
+    return identifier
 
 
 def _positive_amount(value: Any) -> None:
@@ -221,11 +229,11 @@ class _Base:
 
     @staticmethod
     def _get_payment(payment_id: str) -> _Call[Payment]:
-        return _Call("GET", f"/v1/payments/{_payment_segment(payment_id)}", None, Payment.from_api)
+        return _Call("GET", f"/v1/payments/{_segment(payment_id)}", None, Payment.from_api)
 
     @staticmethod
     def _cancel_payment(payment_id: str) -> _Call[Payment]:
-        return _Call("POST", f"/v1/payments/{_payment_segment(payment_id)}/cancel", {}, Payment.from_api)
+        return _Call("POST", f"/v1/payments/{_segment(payment_id)}/cancel", {}, Payment.from_api)
 
     @staticmethod
     def _get_payment_by_reference(reference: str) -> _Call[Payment]:
@@ -263,7 +271,7 @@ class _Base:
             body["amount"] = amount
         if reference:
             body["reference"] = reference
-        return _Call("POST", f"/v1/payments/{quote(payment_id, safe='')}/refunds", body, Refund.from_api)
+        return _Call("POST", f"/v1/payments/{_segment(payment_id)}/refunds", body, Refund.from_api)
 
     @staticmethod
     def _record_external_refund(
@@ -279,11 +287,11 @@ class _Base:
             body["recorded_by"] = recorded_by
         if reference:
             body["reference"] = reference
-        return _Call("POST", f"/v1/payments/{quote(payment_id, safe='')}/external-refunds", body, Refund.from_api)
+        return _Call("POST", f"/v1/payments/{_segment(payment_id)}/external-refunds", body, Refund.from_api)
 
     @staticmethod
     def _get_refund(refund_id: str) -> _Call[Refund]:
-        return _Call("GET", f"/v1/refunds/{quote(refund_id, safe='')}", None, Refund.from_api)
+        return _Call("GET", f"/v1/refunds/{_segment(refund_id)}", None, Refund.from_api)
 
     @staticmethod
     def _top_up_balance(amount: int, currency: str, return_url: Optional[str]) -> _Call[TopUp]:
@@ -374,7 +382,7 @@ class _Base:
             raise TechnasPayError("test_only", "simulate_test_payment exige un secret tps_test_")
         if outcome not in ("completed", "failed", "expired"):
             raise TechnasPayError("invalid_outcome", "outcome : completed, failed ou expired")
-        return f"{self._base_url}/test-checkout/{quote(payment_id, safe='')}/{outcome}"
+        return f"{self._base_url}/test-checkout/{_segment(payment_id)}/{outcome}"
 
     def app_routes(self, **options: Any) -> Any:
         """Routes toutes faites pour votre app Flutter (``technas_pay_flutter``) : voir ``AppRoutes``.
