@@ -64,6 +64,13 @@ def test_type_inconnu_acquitte():
                                              "beneficiary_name": "B", "status": "scheduled"}, "on_payout_destination",
      lambda e: e.destination.status == "scheduled"),
     ("balance.topped_up", {"id": "t", "amount": 5, "currency": "XOF"}, "on_top_up", lambda e: e.top_up.amount == 5),
+    ("settlement.completed", {"id": "s", "amount": 392, "fee": 61, "net_amount": 331, "currency": "XOF",
+                              "status": "completed", "created_at": "2026-11-19T21:15:59+00:00"}, "on_settlement",
+     lambda e: (e.settlement.id, e.settlement.amount, e.settlement.fee, e.settlement.net_amount, e.settlement.currency,
+                e.settlement.status, e.settlement.created_at)
+     == ("s", 392, 61, 331, "XOF", "completed", "2026-11-19T21:15:59+00:00")),
+    ("settlement.failed", {"id": "s", "amount": 392, "fee": 61, "net_amount": 331, "currency": "XOF", "status": "failed"},
+     "on_settlement", lambda e: e.settlement.status == "failed" and e.settlement.amount == 392 and e.settlement.created_at is None),
     ("balance.converted", {"id": "c", "from_currency": "GHS", "from_amount": 10, "to_currency": "XOF", "gross_amount": 450,
                            "cost": 9, "credited_amount": 441, "effective_rate": 44.1}, "on_balance_converted",
      lambda e: e.conversion.credited_amount == 441),
@@ -84,6 +91,17 @@ def test_chaque_famille_d_evenements(type_, data, attr, check):
     seen = []
     TechnasPay(SECRET).handle_webhook(body, sign(body, WEBHOOK_SECRET), WebhookHandlers(**{attr: seen.append}))
     assert len(seen) == 1 and check(seen[0])
+
+
+@pytest.mark.parametrize("type_", ["settlement.completed", "settlement.failed"])
+def test_reversement_arrive_dans_on_settlement_jamais_dans_on_completed(type_):
+    body = json.dumps({"id": "e", "type": type_, "created_at": "x", "data": {}})
+    seen, payes = [], []
+    result = TechnasPay(SECRET).handle_webhook(
+        body, sign(body, WEBHOOK_SECRET), WebhookHandlers(on_settlement=seen.append, on_completed=payes.append))
+    assert len(seen) == 1 and payes == [] and result.event.payment is None
+    s = seen[0].settlement  # champs absents : None, jamais une exception
+    assert (s.id, s.amount, s.fee, s.net_amount, s.currency, s.status, s.created_at) == (None,) * 7
 
 
 def test_create_test_webhook_passe_la_verification_et_refuse_le_reel():

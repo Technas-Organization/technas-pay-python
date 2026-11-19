@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.0 — 2026-11-19
+
+Avis de reversement : `settlement.completed` et `settlement.failed` (l'issue d'un reversement de votre solde vers votre numéro mobile money) ont leur fonction `on_settlement` et leur contenu typé `event.settlement` (`SettlementInfo` : `id`, `amount` ce qui a quitté le solde, `fee` frais du versement à votre charge, `net_amount` ce qui arrive sur le numéro, `currency`, `status` `completed` | `failed`, `created_at`). Sur `settlement.failed`, `amount` est recrédité sur votre solde. Un champ absent vaut `None`. Avant, ces deux avis étaient rendus sans contenu typé (`event.data` seul) et n'appelaient aucune fonction.
+
 ## 0.7.1 — 2026-11-16
 
 Sécurité : identifiants validés avant tout appel. Un identifiant mis dans un chemin d'URL (`get_payment`, `cancel_payment`, `refund`, `record_external_refund`, `get_refund`, `simulate_test_payment`, clients sync et async) doit correspondre à `^[A-Za-z0-9_-]{1,128}$` ; sinon erreur `invalid_request` (statut 0, non rejouable), sans aucun appel et sans citer la valeur reçue. Avant, `get_payment("../balance")` partait encodé (`..%2Fbalance`) avec votre clé : un intermédiaire qui décode puis normalise le chemin pouvait viser une autre route. Routes toutes faites : un identifiant de paiement hors de ce motif rend 404 `payment_not_found`, un `orderId` hors de ce motif 404 `order_not_found`, sans appel.

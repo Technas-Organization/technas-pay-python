@@ -32,7 +32,7 @@ from .models import (
     retry_reference,
     to_app_json,
 )
-from .webhooks import SIGNATURE_HEADER, Event, KycRequired, WebhookHandlers, sign, verify_signature
+from .webhooks import SIGNATURE_HEADER, Event, KycRequired, SettlementInfo, WebhookHandlers, sign, verify_signature
 
 __all__ = [
     "__version__",
@@ -43,5 +43,5 @@ __all__ = [
     "PayoutDestination", "PayoutDestinationState", "PayoutDestinationView", "PayoutNetwork", "Refund",
     "Settlement", "TopUp", "TransactionPage",
     "can_retry", "currency_for_country", "is_final", "retry_reference", "to_app_json",
-    "SIGNATURE_HEADER", "Event", "KycRequired", "WebhookHandlers", "sign", "verify_signature",
+    "SIGNATURE_HEADER", "Event", "KycRequired", "SettlementInfo", "WebhookHandlers", "sign", "verify_signature",
 ]

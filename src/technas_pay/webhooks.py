@@ -59,6 +59,26 @@ class TopUpInfo:
 
 
 @dataclass(frozen=True)
+class SettlementInfo:
+    """``settlement.completed`` / ``settlement.failed`` : l'issue d'un reversement de votre solde.
+
+    Sur ``settlement.failed``, ``amount`` est recrédité sur votre solde.
+    """
+
+    id: str
+    #: Ce qui a quitté votre solde.
+    amount: Any
+    #: Frais du versement mobile money, à votre charge.
+    fee: Any
+    #: Ce qui arrive sur votre numéro.
+    net_amount: Any
+    currency: str
+    #: ``completed`` | ``failed``
+    status: str
+    created_at: Optional[str]
+
+
+@dataclass(frozen=True)
 class Conversion:
     id: str
     from_currency: str
@@ -119,6 +139,8 @@ class Event:
     refund: Optional[Refund] = None
     destination: Optional[PayoutDestinationView] = None
     top_up: Optional[TopUpInfo] = None
+    #: ``settlement.completed`` / ``settlement.failed`` : l'issue d'un reversement.
+    settlement: Optional[SettlementInfo] = None
     conversion: Optional[Conversion] = None
     fx: Optional[FxModeChange] = None
     #: ``card_account.updated`` : le nouvel état de votre compte carte.
@@ -162,6 +184,11 @@ def parse_event(raw: Any) -> Event:
     if t == "balance.topped_up":
         return Event(**base, top_up=TopUpInfo(
             id=d.get("id"), amount=d.get("amount"), currency=d.get("currency"), completed_at=d.get("completed_at"),
+        ))
+    if t in ("settlement.completed", "settlement.failed"):
+        return Event(**base, settlement=SettlementInfo(
+            id=d.get("id"), amount=d.get("amount"), fee=d.get("fee"), net_amount=d.get("net_amount"),
+            currency=d.get("currency"), status=d.get("status"), created_at=d.get("created_at"),
         ))
     if t in ("payment.completed", "payment.failed", "payment.expired"):
         if not d.get("id"):
@@ -222,6 +249,8 @@ class WebhookHandlers:
     - ``on_failed`` : PAS définitif ; n'annulez rien, ne relancez rien.
     - ``on_expired`` : définitif ; seul moment où relancer, avec une NOUVELLE référence.
     - ``on_refund`` : ``refund.completed`` / ``refund.failed`` / ``refund.recorded`` ; prévenez le client.
+    - ``on_settlement`` : ``settlement.completed`` / ``settlement.failed`` ; l'issue d'un reversement
+      (``event.settlement``). Sur ``failed``, la somme est recréditée sur votre solde.
     - ``on_fx_mode_updated`` : si ce n'est pas vous, prévenez Technas (clé compromise ?).
     - ``on_kyc_required`` : prévenez le RESPONSABLE (pas le client) de déposer sa pièce
       (``event.kyc_required.console_url``).
@@ -235,6 +264,7 @@ class WebhookHandlers:
     on_payout_destination: Optional[Handler] = None
     on_refund: Optional[Handler] = None
     on_top_up: Optional[Handler] = None
+    on_settlement: Optional[Handler] = None
     on_balance_converted: Optional[Handler] = None
     on_fx_mode_updated: Optional[Handler] = None
     #: Votre compte carte a changé d'état (ouvert, à compléter, suspendu…).
@@ -257,6 +287,8 @@ def handler_for(event: Event, handlers: WebhookHandlers) -> Optional[Handler]:
         return handlers.on_refund
     if t == "balance.topped_up":
         return handlers.on_top_up
+    if t.startswith("settlement."):
+        return handlers.on_settlement
     if t == "balance.converted":
         return handlers.on_balance_converted
     if t == "fx_mode.updated":

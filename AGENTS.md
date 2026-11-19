@@ -13,7 +13,7 @@ Même API, mêmes règles que le SDK TypeScript `@technas/pay-next` : seuls les 
 ## Installer
 
 ```bash
-pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.7.1"
+pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.8.0"
 ```
 
 
@@ -39,7 +39,7 @@ Créez UNE instance au niveau du module (`pay = TechnasPay()`) : elle lit `TECHN
 | Noter un remboursement fait hors Technas | `pay.record_external_refund(payment_id, amount=..., method="Flooz")` |
 | Savoir que le remboursement est arrivé | `on_refund` (`refund.completed`, `refund.failed`, `refund.recorded`) |
 | Recharger le solde | `pay.top_up_balance(amount=..., currency="XOF")`, ouvrir `checkout_url` ; `on_top_up` |
-| Solde, reversements | `pay.get_balance()`, `pay.get_settlements()` |
+| Solde, reversements | `pay.get_balance()`, `pay.get_settlements()` ; issue d'un reversement : `on_settlement` (`settlement.completed`, `settlement.failed`) |
 | Seuil d'identité du compte (à montrer au marchand) | `pay.get_account_kyc()` ; avis `on_kyc_required` |
 | Historique | `pay.list_transactions(limit=, status=, cursor=)` |
 | Pays hors zone CFA ouverts, risques | `pay.get_fx_mode()` |
@@ -178,6 +178,7 @@ def on_completed(event):
 - **Ils peuvent arriver plusieurs fois** : vos fonctions doivent le supporter (vérifiez l'état en base ou gardez `event.id`).
 - **Ne rattrapez pas leurs exceptions pour répondre 200** : elles doivent remonter (5xx) pour que Technas relivre.
 - `on_refund` : prévenez le client (e-mail, SMS). Technas ne lui écrit pas. `refund.failed` : rien n'est parti, votre solde est recrédité.
+- `on_settlement` : l'issue d'un reversement de votre solde vers votre numéro mobile money. `event.settlement` : `amount` (ce qui a quitté le solde), `fee` (frais du versement, à votre charge), `net_amount` (ce qui arrive sur le numéro), `currency`, `status` (`completed` | `failed`). `settlement.failed` : `amount` est recrédité sur votre solde.
 - Avec `TechnasPay` (sync), les fonctions sont sync. Des fonctions `async def` → `AsyncTechnasPay`.
 
 ## Rembourser

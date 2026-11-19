@@ -13,7 +13,7 @@ C'est la même API que le SDK TypeScript [`@technas/pay-next`](https://github.co
 ## 1. Installer
 
 ```bash
-pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.7.1"
+pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.8.0"
 ```
 
 Seule dépendance : `httpx`. Python 3.9 ou plus récent.
@@ -72,7 +72,7 @@ return 200, result.body
 
 Exemples complets, testés : [FastAPI](examples/fastapi_app.py), [Flask](examples/flask_app.py), [Django](examples/django_app/views.py).
 
-Fonctions disponibles : `on_completed`, `on_failed` (pas définitif), `on_expired` (définitif), `on_refund`, `on_top_up`, `on_payout_destination`, `on_balance_converted`, `on_fx_mode_updated`, `on_card_account_updated`, `on_kyc_required` (seuil d'identité, voir plus bas). Un type inconnu est acquitté sans rien appeler. Une exception dans votre fonction doit remonter : Technas relivrera.
+Fonctions disponibles : `on_completed`, `on_failed` (pas définitif), `on_expired` (définitif), `on_refund`, `on_top_up`, `on_settlement`, `on_payout_destination`, `on_balance_converted`, `on_fx_mode_updated`, `on_card_account_updated`, `on_kyc_required` (seuil d'identité, voir plus bas). `on_settlement` reçoit l'issue d'un reversement de votre solde vers votre numéro mobile money (`settlement.completed`, `settlement.failed`) : `event.settlement.amount` (ce qui a quitté le solde), `fee` (frais du versement, à votre charge), `net_amount` (ce qui arrive sur le numéro), `currency`, `status`. Sur `settlement.failed`, `amount` est recrédité sur votre solde. Un type inconnu est acquitté sans rien appeler. Une exception dans votre fonction doit remonter : Technas relivrera.
 
 ## Pour une app mobile : les routes toutes faites
 
