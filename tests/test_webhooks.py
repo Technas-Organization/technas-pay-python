@@ -191,3 +191,18 @@ def test_avis_expire_dit_pourquoi():
         body = json.dumps({"id": "e", "type": "payment.expired", "created_at": "x", "data": data})
         TechnasPay(SECRET).handle_webhook(body, sign(body, WEBHOOK_SECRET), handlers)
     assert seen == [("canceled", "2026-11-16T09:00:00Z"), ("timeout", None), (None, None)]
+
+
+def test_avis_paiement_porte_qui_paie_les_frais_et_le_total_du_client():
+    pay = TechnasPay(SECRET)
+    data = {**json.loads(EVENT)["data"], "amount": 200, "commission": 5, "net_amount": 200,
+            "customer_amount": 205, "fees_paid_by": "customer", "customer_total": 214, "processing_fee": 9}
+    seen = []
+    for d in (data, json.loads(EVENT)["data"]):
+        body = json.dumps({"id": "e", "type": "payment.completed", "created_at": "x", "data": d})
+        pay.handle_webhook(body, sign(body, WEBHOOK_SECRET), WebhookHandlers(on_completed=seen.append))
+    p = seen[0].payment
+    assert (p.amount, p.customer_amount, p.fees_paid_by, p.customer_total, p.processing_fee) == (200, 205, "customer", 214, 9)
+    # Avis d'un serveur ancien : customer_amount = amount, fees_paid_by = partner, le reste None.
+    ancien = seen[1].payment
+    assert (ancien.customer_amount, ancien.fees_paid_by, ancien.customer_total, ancien.processing_fee) == (5000, "partner", None, None)

@@ -15,6 +15,8 @@ PaymentStatus = Literal["creating", "pending", "completed", "failed", "amount_mi
 
 FxModeName = Literal["none", "local", "converted"]
 RefundFees = Literal["partner", "customer"]
+FeesPaidBy = Literal["partner", "customer"]
+"""Qui paie les frais : le client (``customer``) ou vous (``partner``)."""
 RefundKind = Literal["payout", "external", "card"]
 PaymentMethod = Literal["mobile_money", "card"]
 """``mobile_money`` (défaut) ou ``card`` (exige un compte carte actif et une devise)."""
@@ -118,6 +120,16 @@ class Payment:
     #: Dans l'avis ``payment.expired`` : ``canceled`` (annulé par vous) ou ``timeout`` (délai
     #: dépassé) ; ``None`` ailleurs et dans un avis plus ancien.
     reason: Optional[str] = None
+    #: Ce que Technas demande au réseau de paiement, avant ses frais (= ``amount`` sauf frais au
+    #: client). ``amount`` reste VOTRE prix. Toujours rempli par ``from_api``.
+    customer_amount: Optional[Number] = None
+    #: Qui a payé les frais : ``partner`` ou ``customer``.
+    fees_paid_by: str = "partner"
+    #: Ce que le client paie, frais du réseau de paiement compris (le plus haut des réseaux tant
+    #: qu'il n'a pas choisi le sien). ``None`` : inconnu (carte, hors franc CFA, serveur ancien).
+    customer_total: Optional[Number] = None
+    #: Les frais du réseau de paiement dans ``customer_total``.
+    processing_fee: Optional[Number] = None
 
     @classmethod
     def from_api(cls, raw: Dict[str, Any]) -> "Payment":
@@ -144,6 +156,96 @@ class Payment:
             canceled_at=raw.get("canceled_at"),
             cancel_reason=raw.get("cancel_reason"),
             reason=raw.get("reason"),
+            customer_amount=_or(raw.get("customer_amount"), raw.get("amount")),
+            fees_paid_by=raw.get("fees_paid_by") or "partner",
+            customer_total=raw.get("customer_total"),
+            processing_fee=raw.get("processing_fee"),
+        )
+
+
+def _or(value: Any, default: Any) -> Any:
+    """``value``, sauf s'il est absent (``None``) : alors ``default``. Un 0 reste 0."""
+    return default if value is None else value
+
+
+@dataclass(frozen=True)
+class QuoteNetwork:
+    """Un réseau du devis : ce que le client paie s'il paie avec lui."""
+
+    #: Code du réseau (ex. ``togocel``).
+    network: str
+    #: Le nom que le client connaît (ex. « Mixx by Yas »).
+    network_name: str
+    #: Ce que le client paie, frais du réseau de paiement compris : le montant à afficher.
+    customer_total: Number
+    #: Les frais du réseau de paiement dans ``customer_total``.
+    processing_fee: Number
+    #: La commission Technas.
+    commission: Number
+    #: Ce que vous recevez.
+    net_amount: Number
+    #: Les frais propres de l'opérateur du client, prélevés sur son téléphone EN PLUS, hors
+    #: Technas : une estimation (« environ »), jamais promise. ``None`` : inconnus.
+    operator_fee_estimate: Optional[Number]
+    #: Le client doit obtenir un code sur son téléphone avant de payer (``otp_instructions``).
+    otp_required: bool
+    otp_instructions: Optional[str]
+
+    @classmethod
+    def from_api(cls, raw: Dict[str, Any]) -> "QuoteNetwork":
+        return cls(
+            network=raw.get("network"),
+            network_name=raw.get("network_name") or raw.get("network"),
+            customer_total=raw.get("customer_total"),
+            processing_fee=raw.get("processing_fee"),
+            commission=raw.get("commission"),
+            net_amount=raw.get("net_amount"),
+            operator_fee_estimate=raw.get("operator_fee_estimate"),
+            otp_required=bool(raw.get("otp_required")),
+            otp_instructions=raw.get("otp_instructions"),
+        )
+
+
+@dataclass(frozen=True)
+class Quote:
+    """Le devis d'un paiement (``quote``, ``get_fees``) : rien n'est créé."""
+
+    #: ``mobile_money`` ou ``card``.
+    method: str
+    currency: str
+    country: Optional[str]
+    #: Qui paie les frais : ``partner`` ou ``customer``.
+    fees_paid_by: str
+    #: Votre prix.
+    amount: Number
+    #: Ce que Technas demande au réseau de paiement (avant ses frais).
+    customer_amount: Number
+    #: Ce que le client paie, frais du réseau compris (le plus haut des réseaux possibles) : le
+    #: montant à afficher. Par carte : ``amount`` (les frais de la carte sont pris sur votre compte carte).
+    customer_total: Number
+    #: Les frais du réseau de paiement (le plus haut des réseaux) ; ``None`` par carte.
+    processing_fee: Optional[Number]
+    commission: Number
+    #: Ce que vous recevez ; ``None`` par carte (dépend de la carte du client).
+    net_amount: Optional[Number]
+    #: Réseau par réseau (mobile money) ; vide par carte.
+    networks: List[QuoteNetwork] = field(default_factory=list)
+
+    @classmethod
+    def from_api(cls, raw: Dict[str, Any]) -> "Quote":
+        raw = raw or {}
+        return cls(
+            method=raw.get("method") or "mobile_money",
+            currency=raw.get("currency"),
+            country=raw.get("country"),
+            fees_paid_by=raw.get("fees_paid_by") or "partner",
+            amount=raw.get("amount"),
+            customer_amount=_or(raw.get("customer_amount"), raw.get("amount")),
+            customer_total=_or(raw.get("customer_total"), raw.get("amount")),
+            processing_fee=raw.get("processing_fee"),
+            commission=raw.get("commission"),
+            net_amount=raw.get("net_amount"),
+            networks=[QuoteNetwork.from_api(n) for n in raw.get("networks") or []],
         )
 
 

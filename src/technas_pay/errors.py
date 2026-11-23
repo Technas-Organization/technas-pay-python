@@ -17,7 +17,8 @@ class ErrorDetails:
     - ``risk_not_accepted`` : ``risk``, le texte à montrer à l'utilisateur ;
     - ``kyc_required`` : ``console_url`` (où le responsable dépose sa pièce d'identité) et
       ``reason`` (``amount`` ou ``duration``) ;
-    - ``contract_required`` : ``version`` (le contrat à accepter dans la console) et ``console_url``.
+    - ``contract_required`` : ``version`` (le contrat à accepter dans la console) et ``console_url`` ;
+    - ``amount_too_low`` : ``minimum_amount``, le plus petit montant possible.
     """
 
     missing_amount: Optional[float] = None
@@ -31,6 +32,8 @@ class ErrorDetails:
     console_url: Optional[str] = None
     #: ``contract_required`` : la version du contrat à accepter dans la console.
     version: Optional[str] = None
+    #: ``amount_too_low`` : le plus petit montant possible (minimum du réseau, frais compris).
+    minimum_amount: Optional[float] = None
 
 
 class TechnasPayError(Exception):
@@ -96,6 +99,7 @@ def error_from_response(status: int, data: Any) -> TechnasPayError:
             account_status=data.get("account_status"),
             console_url=data.get("console_url"),
             version=data.get("version"),
+            minimum_amount=data.get("minimum_amount"),
         ),
     )
 

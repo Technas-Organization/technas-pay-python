@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0 — 2026-11-23
+
+Qui paie les frais, et combien paie le client :
+- `pay.quote(amount=..., country=?, network=?, currency=?, fees=?, method=?)` (`POST /v1/quotes`), et son alias `pay.get_fees` → `Quote` : `customer_total` (ce que le client paie, à afficher), `processing_fee` (frais du réseau de paiement), `commission`, `net_amount` (ce que vous recevez), `networks` (`QuoteNetwork`, réseau par réseau, avec `operator_fee_estimate`, une estimation des frais propres de l'opérateur, jamais promise). Rien n'est créé. Mêmes méthodes sur `AsyncTechnasPay` ;
+- `ask_for_payment(..., fees="customer")` : le client paie TOUS les frais (réseau de paiement + commission), vous recevez exactement `amount`. `fees="partner"` : le client paie `amount`, frais compris. Sans `fees` : le réglage de votre compte. Par carte, seulement `"partner"` (`fees_customer_unavailable`) ;
+- `Payment` et l'avis `event.payment` : `customer_amount` (ce que Technas demande au réseau de paiement, `amount` sur un serveur ancien), `fees_paid_by` (`partner` sur un serveur ancien), `customer_total` et `processing_fee` (`None` sur un serveur ancien). `amount` reste VOTRE prix ;
+- `amount_too_low` : `e.details.minimum_amount`.
+
 ## 0.8.1 — 2026-11-23
 
 Un essai échoué ne bloque plus : `cancel_payment` peut répondre `payment_failed_page_open` (409, avec `expires_at`) quand l'essai a échoué, que rien n'est en cours chez l'opérateur, mais que sa page reste ouverte jusqu'à son échéance. Ne réessayez pas l'annulation : créez le nouvel essai. Avant, le serveur répondait `payment_in_progress` pendant une heure. Routes toutes faites : sur ce code, l'essai suivant est créé (deux pages payées = remboursement de l'essai en trop). Contrat v1 : 32 cas.

@@ -451,3 +451,84 @@ async def test_annuler_avec_le_client_async():
         p = await pay.cancel_payment("pay_1")
     assert calls[0].method == "POST" and calls[0].url.path == "/v1/payments/pay_1/cancel"
     assert p.cancel_reason == "canceled_by_partner"
+
+
+PAYE = {**ANNULE, "status": "completed", "checkout_url": None, "canceled_at": None, "cancel_reason": None}
+
+
+def test_frais_au_client_fees_envoye_seulement_s_il_est_donne_et_lu_avec_ses_defauts():
+    calls, handler = _sequence(
+        (201, {**PAYE, "id": "pay_2", "status": "pending"}),
+        (201, {**PAYE, "id": "pay_3", "status": "pending"}),
+        (200, {**PAYE, "amount": 200, "customer_amount": 205, "net_amount": 200, "commission": 5,
+               "fees_paid_by": "customer", "customer_total": 214, "processing_fee": 9}),
+    )
+    pay = TechnasPay(SECRET, base_url=BASE, http_client=httpx.Client(transport=httpx.MockTransport(handler)))
+    p = ask(pay, fees="customer")
+    assert json.loads(calls[0].content)["fees"] == "customer"
+    # Serveur plus ancien : customer_amount absent → amount, fees_paid_by absent → partner, le reste None.
+    assert (p.customer_amount, p.fees_paid_by, p.customer_total, p.processing_fee) == (p.amount, "partner", None, None)
+    ask(pay, ref="cmd_1-2")
+    assert "fees" not in json.loads(calls[1].content)
+    lu = pay.get_payment("pay_1")
+    assert (lu.amount, lu.customer_amount, lu.net_amount, lu.fees_paid_by, lu.customer_total, lu.processing_fee) == (
+        200, 205, 200, "customer", 214, 9)
+    with pytest.raises(TechnasPayError) as e:
+        ask(pay, fees="client")
+    assert e.value.code == "invalid_request" and e.value.status == 0
+    assert len(calls) == 3
+
+
+DEVIS = {
+    "method": "mobile_money", "currency": "XOF", "country": "TG", "fees_paid_by": "customer",
+    "amount": 200, "customer_amount": 205, "customer_total": 214, "processing_fee": 9, "commission": 5, "net_amount": 200,
+    "networks": [{"network": "togocel", "network_name": "Mixx by Yas", "customer_total": 214, "processing_fee": 9,
+                  "commission": 5, "net_amount": 200, "operator_fee_estimate": 10, "otp_required": False,
+                  "otp_instructions": None}],
+}
+
+
+def test_devis_quote_et_get_fees_envoient_le_montant_le_pays_et_le_mode_et_lisent_chaque_reseau():
+    calls, handler = _sequence((200, DEVIS), (200, DEVIS), (200, {
+        "method": "card", "currency": "EUR", "country": None, "fees_paid_by": "partner", "amount": 20,
+        "customer_amount": 20, "customer_total": 20, "processing_fee": None, "commission": 0.2, "net_amount": None,
+        "networks": [],
+    }))
+    pay = TechnasPay(SECRET, base_url=BASE, http_client=httpx.Client(transport=httpx.MockTransport(handler)))
+    q = pay.quote(amount=200, country="tg", fees="customer")
+    assert calls[0].method == "POST" and str(calls[0].url) == f"{BASE}/v1/quotes"
+    assert calls[0].headers["authorization"] == f"Bearer {API_KEY}"
+    assert json.loads(calls[0].content) == {"amount": 200, "country": "TG", "fees": "customer"}
+    assert (q.customer_total, q.processing_fee, q.commission, q.net_amount, q.fees_paid_by, q.customer_amount) == (
+        214, 9, 5, 200, "customer", 205)
+    n = q.networks[0]
+    assert (n.network, n.network_name, n.customer_total, n.processing_fee, n.commission, n.net_amount,
+            n.operator_fee_estimate, n.otp_required, n.otp_instructions) == (
+        "togocel", "Mixx by Yas", 214, 9, 5, 200, 10, False, None)
+    pay.get_fees(amount=1000, country="TG", network="togocel")
+    assert json.loads(calls[1].content) == {"amount": 1000, "country": "TG", "network": "togocel"}
+    carte = pay.quote(amount=20, method="card", currency="eur")
+    assert json.loads(calls[2].content) == {"amount": 20, "method": "card", "currency": "EUR"}
+    assert (carte.processing_fee, carte.net_amount, carte.networks, carte.customer_total) == (None, None, [], 20)
+    for bad in ({"amount": 0}, {"amount": 200, "fees": "client"}, {"amount": 200, "method": "cash"}):
+        with pytest.raises(TechnasPayError) as e:
+            pay.quote(**bad)
+        assert e.value.status == 0
+    assert len(calls) == 3
+
+
+def test_devis_amount_too_low_rend_le_minimum():
+    calls, handler = _sequence((422, {"code": "amount_too_low", "message": "trop petit", "minimum_amount": 209}))
+    pay = TechnasPay(SECRET, base_url=BASE, http_client=httpx.Client(transport=httpx.MockTransport(handler)))
+    with pytest.raises(TechnasPayError) as e:
+        pay.quote(amount=200, country="TG", fees="partner")
+    assert e.value.code == "amount_too_low" and e.value.status == 422 and e.value.details.minimum_amount == 209
+
+
+async def test_devis_avec_le_client_async():
+    calls, handler = _sequence((200, DEVIS), (200, DEVIS))
+    async with AsyncTechnasPay(SECRET, base_url=BASE, http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler))) as pay:
+        q = await pay.quote(amount=200, country="TG", fees="customer")
+        await pay.get_fees(amount=200, country="TG")
+    assert calls[0].url.path == "/v1/quotes" and q.customer_total == 214 and q.networks[0].network_name == "Mixx by Yas"
+    assert json.loads(calls[1].content) == {"amount": 200, "country": "TG"}

@@ -2,7 +2,7 @@
 
 Encaissez des paiements mobile money et par carte via Technas depuis un serveur Python : FastAPI, Django, Flask, ou tout autre framework.
 
-**Technas Pay réunit le mobile money et la carte dans un seul SDK, du serveur jusqu'à l'app Flutter.** Carte : 1 % (plus les frais de votre compte carte, selon le pays : environ 1,5 % + 0,25 € en Europe). Mobile money : 2 % (les frais de l'opérateur sont payés par le client). Sans abonnement, et une clé de test sans papier pour commencer.
+**Technas Pay réunit le mobile money et la carte dans un seul SDK, du serveur jusqu'à l'app Flutter.** Carte : 1 % (plus les frais de votre compte carte, selon le pays : environ 1,5 % + 0,25 € en Europe). Mobile money : 2 %, et vous choisissez qui paie les frais : le client (vous recevez exactement votre prix) ou vous (le client paie votre prix) ; `pay.quote` dit les montants avant le paiement. Sans abonnement, et une clé de test sans papier pour commencer.
 
 Devises et pays, pièces demandées, versements, comparaison avec les autres prestataires : [le hub Technas Pay](https://github.com/Technas-Organization/technas-pay).
 
@@ -13,7 +13,7 @@ C'est la même API que le SDK TypeScript [`@technas/pay-next`](https://github.co
 ## 1. Installer
 
 ```bash
-pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.8.0"
+pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.9.0"
 ```
 
 Seule dépendance : `httpx`. Python 3.9 ou plus récent.
@@ -45,7 +45,37 @@ order.payment_id = payment.id
 
 En asynchrone (FastAPI…), même chose avec `AsyncTechnasPay` et `await`.
 
-Calculez le montant côté serveur. Ne passez pas `currency` si vous vendez en francs CFA : la devise suit le pays du client (`customer["country"]`), ou le client choisit son pays sur la page de paiement. Options : `currency`, `description`, `metadata` (4 Ko), `allowed_countries`, `excluded_countries`, `ask_country`.
+Calculez le montant côté serveur. Ne passez pas `currency` si vous vendez en francs CFA : la devise suit le pays du client (`customer["country"]`), ou le client choisit son pays sur la page de paiement. Options : `currency`, `description`, `metadata` (4 Ko), `allowed_countries`, `excluded_countries`, `ask_country`, `fees`.
+
+### Qui paie les frais, et combien paie le client
+
+Deux modes, en mobile money (franc CFA). Le mode par défaut est celui de votre compte (demandez à Technas de le changer) ; chaque paiement peut le surcharger avec `fees`.
+
+| `fees` | Le client paie | Vous recevez |
+|---|---|---|
+| `"customer"` | votre prix + les frais du réseau de paiement + la commission Technas | **exactement votre prix** |
+| `"partner"` | **votre prix**, frais compris | votre prix − les frais |
+
+Pour savoir AVANT de créer le paiement combien le client paiera (le montant à lui afficher) et combien vous recevrez :
+
+```python
+q = pay.quote(amount=200, country="TG", fees="customer")
+q.customer_total   # 214 : ce que le client paie (à afficher)
+q.processing_fee   # 9   : frais du réseau de paiement
+q.commission       # 5   : commission Technas (2 %)
+q.net_amount       # 200 : ce que vous recevez
+q.networks         # le détail réseau par réseau (Mixx by Yas, Moov Money…)
+
+p = pay.quote(amount=1000, country="TG", fees="partner")
+# p.customer_total 1000, p.processing_fee 40, p.commission 20, p.net_amount 940
+```
+
+- `pay.get_fees(...)` est le même appel que `pay.quote(...)`. Rien n'est créé. En asynchrone : `await pay.quote(...)`.
+- Un paiement créé ensuite avec le même montant, le même pays et le même `fees` porte les mêmes montants : `payment.customer_total`, `payment.processing_fee`, `payment.net_amount`. `payment.amount` reste votre prix.
+- Les frais du réseau de paiement suivent la grille du réseau. Le client choisit son réseau sur la page de paiement : `customer_total` est le plus haut des réseaux possibles, `networks[i].customer_total` le montant exact de chacun.
+- L'opérateur du client (Mixx by Yas, Moov…) peut prendre ses propres frais sur le téléphone, en dehors de Technas : `networks[i].operator_fee_estimate` en donne une estimation quand on la connaît (« environ »), jamais une promesse.
+- Montant trop petit : `amount_too_low` avec `e.details.minimum_amount`. Au Togo, le réseau n'accepte rien sous 200 F : en `"partner"`, 209 F au minimum ; en `"customer"`, 200 F passent.
+- Par carte, seulement `"partner"` : ajouter des frais au paiement par carte d'un consommateur est interdit en Europe. `pay.quote(amount=20, method="card", currency="EUR")` rend la commission (`net_amount` `None` : les frais de la carte dépendent de la carte du client).
 
 ## 3. Recevoir le webhook
 
@@ -106,6 +136,7 @@ Routes : `GET /methods?orderId=`, `POST /payments` `{orderId}`, `GET /payments/{
 | `record_external_refund(payment_id, amount=, method=, note=?, recorded_by=?)` | Noter un remboursement fait hors Technas |
 | `get_refund(id)` | Statut d'un remboursement |
 | `top_up_balance(amount=, currency=, return_url=?)` | Recharger le solde (ouvrir `checkout_url`) |
+| `quote(amount=, country=?, network=?, currency=?, fees=?, method=?)`, `get_fees(...)` | Devis : ce que le client paiera, ce que vous recevrez (rien n'est créé) |
 | `get_balance()`, `get_settlements()` | Solde par devise, reversements |
 | `get_account_kyc()` | Seuil d'identité du compte (à montrer au marchand) |
 | `get_fx_mode()`, `set_fx_mode(mode=, accept_risk=, markup_pct=?)` | Clients hors zone franc CFA (option à risque) |

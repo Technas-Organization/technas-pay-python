@@ -48,6 +48,14 @@ class EventPayment:
     #: ``payment.expired`` annulé : quand.
     canceled_at: Optional[str] = None
     cancel_reason: Optional[str] = None
+    #: Ce que Technas a demandé au réseau de paiement, avant ses frais (= ``amount`` sauf frais au client).
+    customer_amount: Any = None
+    #: Qui a payé les frais : ``partner`` ou ``customer``.
+    fees_paid_by: str = "partner"
+    #: Ce que le client a payé, frais du réseau de paiement compris (``None`` : inconnu).
+    customer_total: Any = None
+    #: Les frais du réseau de paiement dans ``customer_total``.
+    processing_fee: Any = None
 
 
 @dataclass(frozen=True)
@@ -200,6 +208,9 @@ def parse_event(raw: Any) -> Event:
             original_amount=d.get("original_amount"), original_currency=d.get("original_currency"),
             fx=PaymentFx.from_api(d.get("fx")), expires_at=d.get("expires_at"), expired_at=d.get("expired_at"),
             reason=d.get("reason"), canceled_at=d.get("canceled_at"), cancel_reason=d.get("cancel_reason"),
+            customer_amount=d.get("amount") if d.get("customer_amount") is None else d.get("customer_amount"),
+            fees_paid_by=d.get("fees_paid_by") or "partner",
+            customer_total=d.get("customer_total"), processing_fee=d.get("processing_fee"),
         ))
     return Event(**base)
 

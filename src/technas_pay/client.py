@@ -34,6 +34,7 @@ from .models import (
     PayoutDestination,
     PayoutDestinationState,
     PayoutNetwork,
+    Quote,
     Refund,
     Settlement,
     TopUp,
@@ -101,6 +102,11 @@ def _positive_amount(value: Any) -> None:
 def _positive_int(value: Any, name: str = "amount") -> None:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise TechnasPayError("invalid_amount", f"{name} doit être un entier positif (5000 = 5 000 FCFA)")
+
+
+def _check_fees(fees: Any) -> None:
+    if fees is not None and fees not in ("partner", "customer"):
+        raise TechnasPayError("invalid_request", 'fees vaut "partner" ou "customer"')
 
 
 @dataclass(frozen=True)
@@ -192,9 +198,11 @@ class _Base:
         allowed_countries: Optional[Sequence[str]] = None,
         excluded_countries: Optional[Sequence[str]] = None,
         ask_country: bool = False,
+        fees: Optional[str] = None,
     ) -> _Call[Payment]:
         if method not in ("mobile_money", "card"):
             raise TechnasPayError("invalid_request", 'method vaut "mobile_money" ou "card"')
+        _check_fees(fees)
         if method == "card":
             _positive_amount(amount)
         else:
@@ -225,7 +233,35 @@ class _Base:
             body["excluded_countries"] = list(excluded_countries)
         if ask_country:
             body["ask_country"] = True
+        if fees is not None:
+            body["fees"] = fees
         return _Call("POST", "/v1/payments", body, Payment.from_api)
+
+    @staticmethod
+    def _quote(
+        amount: Union[int, float],
+        method: Optional[str],
+        country: Optional[str],
+        network: Optional[str],
+        currency: Optional[str],
+        fees: Optional[str],
+    ) -> _Call[Quote]:
+        _positive_amount(amount)
+        if method is not None and method not in ("mobile_money", "card"):
+            raise TechnasPayError("invalid_request", 'method vaut "mobile_money" ou "card"')
+        _check_fees(fees)
+        body: Dict[str, Any] = {"amount": amount}
+        if method:
+            body["method"] = method
+        if country and country.strip():
+            body["country"] = country.strip().upper()
+        if network:
+            body["network"] = network
+        if currency and currency.strip():
+            body["currency"] = currency.strip().upper()
+        if fees is not None:
+            body["fees"] = fees
+        return _Call("POST", "/v1/quotes", body, Quote.from_api)
 
     @staticmethod
     def _get_payment(payment_id: str) -> _Call[Payment]:
@@ -481,7 +517,12 @@ class TechnasPay(_Base):
         ``reference`` : UNE RÉFÉRENCE = UN ESSAI (``retry_reference(order_id, attempt)``).
         ``customer`` : ``{"email", "name", "phone"?, "country"?}``, de vrais champs du client.
         Options : ``currency``, ``description``, ``metadata``, ``allowed_countries``,
-        ``excluded_countries``, ``ask_country``. Ne passez pas ``currency`` en zone franc CFA.
+        ``excluded_countries``, ``ask_country``, ``fees``. Ne passez pas ``currency`` en zone franc CFA.
+
+        ``fees`` (mobile money en franc CFA) : ``"customer"``, le client paie tout, frais du réseau
+        de paiement ET commission Technas, et vous recevez EXACTEMENT ``amount`` ; ``"partner"``, le
+        client paie ``amount``, frais compris. Absent : le réglage de votre compte. Montants avant
+        de créer le paiement : ``quote(...)``. Par carte, seulement ``"partner"`` (``fees_customer_unavailable``).
         """
         return self._run(self._ask_for_payment(amount=amount, reference=reference, customer=customer, return_url=return_url, **options))
 
@@ -554,6 +595,29 @@ class TechnasPay(_Base):
     def get_card_dashboard_link(self) -> str:
         """Le tableau de bord de votre compte carte : le responsable s'y connecte avec SES identifiants."""
         return self._run(self._get_card_dashboard_link())
+
+    def quote(
+        self, *, amount: Union[int, float], method: Optional[str] = None, country: Optional[str] = None,
+        network: Optional[str] = None, currency: Optional[str] = None, fees: Optional[str] = None,
+    ) -> Quote:
+        """Le devis : pour un montant, ce que le client paiera (``customer_total``, à afficher) et ce
+        que vous recevrez (``net_amount``), réseau par réseau. Ne crée aucun paiement ; un paiement
+        créé ensuite avec le même montant, le même pays et le même ``fees`` rend les mêmes montants.
+
+        ``pay.quote(amount=200, country="TG", fees="customer").customer_total`` vaut 214 : le client
+        paie 214, vous recevez 200. ``method`` : ``mobile_money`` (défaut) ou ``card`` ; ``country`` :
+        pays du client (sans lui, tous les pays de la devise) ; ``network`` : un réseau précis ;
+        ``currency`` : sans ``country``, ``XOF`` ou ``XAF`` (obligatoire par carte) ; ``fees`` :
+        ``partner`` ou ``customer`` (absent : le réglage de votre compte).
+        """
+        return self._run(self._quote(amount, method, country, network, currency, fees))
+
+    def get_fees(
+        self, *, amount: Union[int, float], method: Optional[str] = None, country: Optional[str] = None,
+        network: Optional[str] = None, currency: Optional[str] = None, fees: Optional[str] = None,
+    ) -> Quote:
+        """Même chose que ``quote`` : combien le client paiera, combien vous recevrez."""
+        return self.quote(amount=amount, method=method, country=country, network=network, currency=currency, fees=fees)
 
     def get_balance(self) -> List[Balance]:
         return self._run(self._get_balance())
@@ -686,6 +750,20 @@ class AsyncTechnasPay(_Base):
 
     async def get_card_dashboard_link(self) -> str:
         return await self._run(self._get_card_dashboard_link())
+
+    async def quote(
+        self, *, amount: Union[int, float], method: Optional[str] = None, country: Optional[str] = None,
+        network: Optional[str] = None, currency: Optional[str] = None, fees: Optional[str] = None,
+    ) -> Quote:
+        """Voir ``TechnasPay.quote``."""
+        return await self._run(self._quote(amount, method, country, network, currency, fees))
+
+    async def get_fees(
+        self, *, amount: Union[int, float], method: Optional[str] = None, country: Optional[str] = None,
+        network: Optional[str] = None, currency: Optional[str] = None, fees: Optional[str] = None,
+    ) -> Quote:
+        """Même chose que ``quote``."""
+        return await self.quote(amount=amount, method=method, country=country, network=network, currency=currency, fees=fees)
 
     async def get_balance(self) -> List[Balance]:
         return await self._run(self._get_balance())

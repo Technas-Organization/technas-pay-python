@@ -13,7 +13,7 @@ Même API, mêmes règles que le SDK TypeScript `@technas/pay-next` : seuls les 
 ## Installer
 
 ```bash
-pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.8.0"
+pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.9.0"
 ```
 
 
@@ -31,6 +31,8 @@ Créez UNE instance au niveau du module (`pay = TechnasPay()`) : elle lit `TECHN
 | Besoin | Appel |
 |---|---|
 | Faire payer une commande | `pay.ask_for_payment(amount=..., reference=retry_reference(order_id, attempt), customer={"email", "name"}, return_url=...)`, puis rediriger (303) vers `payment.checkout_url` |
+| Savoir combien le client paiera et combien vous recevrez, avant de créer le paiement | `pay.quote(amount=..., country=..., fees=?)` (ou `pay.get_fees`) → `customer_total` (à afficher au client), `processing_fee`, `commission`, `net_amount`, `networks` |
+| Faire payer TOUS les frais au client (vous recevez exactement `amount`) | `fees="customer"` dans `ask_for_payment` (ou réglage du compte) ; `"partner"` : le client paie `amount`, frais compris |
 | Savoir qu'elle est payée | webhook, `WebhookHandlers(on_completed=...)` |
 | Rattraper un webhook manqué | `pay.get_payment_by_reference(reference)` |
 | Savoir si on peut relancer | `on_expired`, ou `can_retry(pay.get_payment(id))` |
@@ -199,7 +201,7 @@ Attrapez `TechnasPayError` et testez `error.code` (jamais le message). `error.re
 | `invalid_secret` | Variable absente ou mal copiée : demandez à l'utilisateur de la vérifier |
 | `invalid_api_key` | Secret refusé : contacter Technas |
 | `invalid_request` | Corriger le champ indiqué dans `error.errors` |
-| `invalid_amount`, `amount_too_low` | Montant `int` positif, assez grand pour couvrir les frais |
+| `invalid_amount`, `amount_too_low` | Montant `int` positif, assez grand pour couvrir les frais ; `amount_too_low` : `e.details.minimum_amount` |
 | `currency_not_enabled` | Devise non ouverte sur ce compte : contacter Technas |
 | `currency_conversion_unavailable` | Client hors zone CFA en mode `none` : ne pas proposer ce pays ; voir `get_fx_mode()` |
 | `country_not_allowed` | Le marchand ne vend pas dans ce pays : ne pas contourner |
