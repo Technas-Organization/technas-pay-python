@@ -30,7 +30,12 @@ from .models import (
     CardOnboardingLink,
     CountryRules,
     FxMode,
+    NETWORKS,
+    PAYMENT_METHODS,
+    Network,
     Payment,
+    PaymentMethod,
+    PaymentMethods,
     PayoutDestination,
     PayoutDestinationState,
     PayoutNetwork,
@@ -107,6 +112,30 @@ def _positive_int(value: Any, name: str = "amount") -> None:
 def _check_fees(fees: Any) -> None:
     if fees is not None and fees not in ("partner", "customer"):
         raise TechnasPayError("invalid_request", 'fees vaut "partner" ou "customer"')
+
+
+def _check_networks(networks: Any, name: str = "networks") -> None:
+    if networks is None:
+        return
+    if isinstance(networks, str) or any(n not in NETWORKS for n in networks):
+        raise TechnasPayError("invalid_request", f"{name} : une liste de réseaux de NETWORKS (mixx, moov, mtn_momo…)")
+
+
+def _check_methods(methods: Any) -> None:
+    if methods is None:
+        return
+    if isinstance(methods, str) or any(m not in PAYMENT_METHODS for m in methods):
+        raise TechnasPayError("invalid_request", 'methods : une liste de "mobile_money" et "card"')
+
+
+class _Unset:
+    """Champ non donné : il ne change pas (différent de ``None``)."""
+
+    def __repr__(self) -> str:
+        return "UNSET"
+
+
+_UNSET: Any = _Unset()
 
 
 @dataclass(frozen=True)
@@ -199,10 +228,12 @@ class _Base:
         excluded_countries: Optional[Sequence[str]] = None,
         ask_country: bool = False,
         fees: Optional[str] = None,
+        networks: Optional[Sequence[Network]] = None,
     ) -> _Call[Payment]:
         if method not in ("mobile_money", "card"):
             raise TechnasPayError("invalid_request", 'method vaut "mobile_money" ou "card"')
         _check_fees(fees)
+        _check_networks(networks)
         if method == "card":
             _positive_amount(amount)
         else:
@@ -235,6 +266,8 @@ class _Base:
             body["ask_country"] = True
         if fees is not None:
             body["fees"] = fees
+        if networks:
+            body["networks"] = list(networks)
         return _Call("POST", "/v1/payments", body, Payment.from_api)
 
     @staticmethod
@@ -351,6 +384,27 @@ class _Base:
         if home_currency:
             body["home_currency"] = home_currency
         return _Call("PUT", "/v1/fx", body, FxMode.from_api)
+
+    @staticmethod
+    def _get_payment_methods(country: Optional[str]) -> _Call[PaymentMethods]:
+        suffix = f"?{urlencode({'country': country.strip().upper()})}" if country and country.strip() else ""
+        return _Call("GET", f"/v1/payment-methods{suffix}", None, PaymentMethods.from_api)
+
+    @staticmethod
+    def _set_payment_methods(methods: Any, networks: Any, network_order: Any) -> _Call[PaymentMethods]:
+        body: Dict[str, Any] = {}
+        if methods is not _UNSET:
+            _check_methods(methods)
+            body["methods"] = list(methods) if methods is not None else None
+        if networks is not _UNSET:
+            _check_networks(networks)
+            body["networks"] = list(networks) if networks is not None else None
+        if network_order is not _UNSET:
+            if network_order is None:
+                raise TechnasPayError("invalid_request", "network_order : une liste de réseaux de NETWORKS")
+            _check_networks(network_order, "network_order")
+            body["network_order"] = list(network_order)
+        return _Call("PUT", "/v1/payment-methods", body, PaymentMethods.from_api)
 
     @staticmethod
     def _set_country_rules(allowed: Optional[Sequence[str]], excluded: Optional[Sequence[str]]) -> _Call[CountryRules]:
@@ -517,7 +571,10 @@ class TechnasPay(_Base):
         ``reference`` : UNE RÉFÉRENCE = UN ESSAI (``retry_reference(order_id, attempt)``).
         ``customer`` : ``{"email", "name", "phone"?, "country"?}``, de vrais champs du client.
         Options : ``currency``, ``description``, ``metadata``, ``allowed_countries``,
-        ``excluded_countries``, ``ask_country``, ``fees``. Ne passez pas ``currency`` en zone franc CFA.
+        ``excluded_countries``, ``ask_country``, ``fees``, ``networks``. Ne passez pas ``currency`` en zone franc CFA.
+
+        ``networks`` : les réseaux mobile money permis pour CE paiement (valeurs de ``NETWORKS``, parmi
+        ceux de votre compte). Absent : tous ceux que vous avez activés.
 
         ``fees`` (mobile money en franc CFA) : ``"customer"``, le client paie tout, frais du réseau
         de paiement ET commission Technas, et vous recevez EXACTEMENT ``amount`` ; ``"partner"``, le
@@ -577,6 +634,24 @@ class TechnasPay(_Base):
         et obtenu son accord explicite. ``converted`` lève aujourd'hui ``fx_mode_unavailable``."""
         return self._run(self._set_fx_mode(mode, accept_risk, markup_pct, home_currency))
 
+    def get_payment_methods(self, country: Optional[str] = None) -> PaymentMethods:
+        """Les moyens et réseaux ouverts pour votre compte (par pays, ``country`` facultatif), ce que
+        vous avez activé (``enabled``) et votre ordre d'affichage. Pour construire votre propre choix
+        de paiement, ou vos réglages."""
+        return self._run(self._get_payment_methods(country))
+
+    def set_payment_methods(
+        self,
+        *,
+        methods: Optional[Sequence[PaymentMethod]] = _UNSET,
+        networks: Optional[Sequence[Network]] = _UNSET,
+        network_order: Sequence[Network] = _UNSET,
+    ) -> PaymentMethods:
+        """Activer ou éteindre des moyens (``PAYMENT_METHODS``) et des réseaux (``NETWORKS``), et fixer
+        l'ordre d'affichage sur la page de paiement. Un champ non donné ne change pas ;
+        ``networks=None`` = tous les réseaux."""
+        return self._run(self._set_payment_methods(methods, networks, network_order))
+
     def set_country_rules(self, *, allowed: Optional[Sequence[str]] = None, excluded: Optional[Sequence[str]] = None) -> CountryRules:
         return self._run(self._set_country_rules(allowed, excluded))
 
@@ -606,7 +681,8 @@ class TechnasPay(_Base):
 
         ``pay.quote(amount=200, country="TG", fees="customer").customer_total`` vaut 214 : le client
         paie 214, vous recevez 200. ``method`` : ``mobile_money`` (défaut) ou ``card`` ; ``country`` :
-        pays du client (sans lui, tous les pays de la devise) ; ``network`` : un réseau précis ;
+        pays du client (sans lui, tous les pays de la devise) ; ``network`` : un réseau précis
+        (valeur de ``NETWORKS``, ex. ``mixx`` ; un ancien code comme ``togocel`` reste accepté) ;
         ``currency`` : sans ``country``, ``XOF`` ou ``XAF`` (obligatoire par carte) ; ``fees`` :
         ``partner`` ou ``customer`` (absent : le réglage de votre compte).
         """
@@ -735,6 +811,20 @@ class AsyncTechnasPay(_Base):
     ) -> FxMode:
         """Voir ``TechnasPay.set_fx_mode`` : jamais ``accept_risk=True`` sans l'accord explicite de l'utilisateur."""
         return await self._run(self._set_fx_mode(mode, accept_risk, markup_pct, home_currency))
+
+    async def get_payment_methods(self, country: Optional[str] = None) -> PaymentMethods:
+        """Voir ``TechnasPay.get_payment_methods``."""
+        return await self._run(self._get_payment_methods(country))
+
+    async def set_payment_methods(
+        self,
+        *,
+        methods: Optional[Sequence[PaymentMethod]] = _UNSET,
+        networks: Optional[Sequence[Network]] = _UNSET,
+        network_order: Sequence[Network] = _UNSET,
+    ) -> PaymentMethods:
+        """Voir ``TechnasPay.set_payment_methods`` : un champ non donné ne change pas."""
+        return await self._run(self._set_payment_methods(methods, networks, network_order))
 
     async def set_country_rules(self, *, allowed: Optional[Sequence[str]] = None, excluded: Optional[Sequence[str]] = None) -> CountryRules:
         return await self._run(self._set_country_rules(allowed, excluded))

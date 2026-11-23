@@ -56,6 +56,8 @@ class EventPayment:
     customer_total: Any = None
     #: Les frais du réseau de paiement dans ``customer_total``.
     processing_fee: Any = None
+    #: Le réseau avec lequel le client a payé (``mixx``, ``moov``…) ; ``None`` sinon.
+    network: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -211,6 +213,7 @@ def parse_event(raw: Any) -> Event:
             customer_amount=d.get("amount") if d.get("customer_amount") is None else d.get("customer_amount"),
             fees_paid_by=d.get("fees_paid_by") or "partner",
             customer_total=d.get("customer_total"), processing_fee=d.get("processing_fee"),
+            network=d.get("network"),
         ))
     return Event(**base)
 

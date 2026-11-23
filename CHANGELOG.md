@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.0 — 2026-11-23
+
+Les moyens et les réseaux, en listes fermées et typées :
+- constantes `PAYMENT_METHODS` et `NETWORKS` (types `PaymentMethod`, `Network`) : `mixx` (Mixx by Yas), `moov` (Moov Money / Flooz), `mtn_momo`, `orange_money`, `wave`… ;
+- `pay.get_payment_methods(country=None)` (moyens et réseaux ouverts, `enabled`, votre ordre) et `pay.set_payment_methods(methods=?, networks=?, network_order=?)` → `PaymentMethods` (`methods` : `MethodSetting`, `networks` : `NetworkSetting`, `network_order`). Un champ non donné ne change pas ; `networks=None` = tous. Mêmes méthodes sur `AsyncTechnasPay` ;
+- `ask_for_payment(..., networks=[...])` : les réseaux permis pour un paiement (envoyé seulement s'il n'est pas vide ; une valeur hors de `NETWORKS` est refusée avant tout appel) ;
+- `Payment.network` (réseau avec lequel le client a payé), `Payment.networks`, `event.payment.network` (`None` sur un serveur ancien) ;
+- nouveaux refus : `method_not_enabled`, `network_not_enabled`, `network_not_available` (422) ;
+- ⚠️ `quote()` : `networks[i].network` vaut maintenant un réseau de `NETWORKS` (`"mixx"`, `"moov"`) au lieu d'un code technique (`"togocel"`, `"moov_tg"`). En entrée, `quote(network="togocel")` reste accepté et vise `"mixx"`. Un réseau plus récent que ce SDK est gardé tel quel.
+
 ## 0.9.0 — 2026-11-23
 
 Qui paie les frais, et combien paie le client :

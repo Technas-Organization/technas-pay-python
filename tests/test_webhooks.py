@@ -206,3 +206,12 @@ def test_avis_paiement_porte_qui_paie_les_frais_et_le_total_du_client():
     # Avis d'un serveur ancien : customer_amount = amount, fees_paid_by = partner, le reste None.
     ancien = seen[1].payment
     assert (ancien.customer_amount, ancien.fees_paid_by, ancien.customer_total, ancien.processing_fee) == (5000, "partner", None, None)
+
+
+def test_avis_paiement_porte_le_reseau_paye():
+    pay = TechnasPay(SECRET)
+    seen = []
+    for d in ({**json.loads(EVENT)["data"], "network": "mixx"}, json.loads(EVENT)["data"]):
+        body = json.dumps({"id": "e", "type": "payment.completed", "created_at": "x", "data": d})
+        pay.handle_webhook(body, sign(body, WEBHOOK_SECRET), WebhookHandlers(on_completed=seen.append))
+    assert [e.payment.network for e in seen] == ["mixx", None]

@@ -7,7 +7,7 @@ décimal, ne l'arrondissez pas.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 PaymentStatus = Literal["creating", "pending", "completed", "failed", "amount_mismatch", "expired"]
 """``failed`` n'est PAS définitif (le client peut encore payer sur la même page pendant une heure).
@@ -21,6 +21,25 @@ RefundKind = Literal["payout", "external", "card"]
 PaymentMethod = Literal["mobile_money", "card"]
 """``mobile_money`` (défaut) ou ``card`` (exige un compte carte actif et une devise)."""
 Number = Union[int, float]
+
+PAYMENT_METHODS: Tuple[PaymentMethod, ...] = ("mobile_money", "card")
+"""Tous les moyens de paiement, à énumérer (``for m in PAYMENT_METHODS``)."""
+
+Network = Literal[
+    "mixx", "moov", "mtn_momo", "orange_money", "wave", "airtel_money", "free_money", "celtiis_cash",
+    "djamo", "expresso", "wizall", "mobicash", "mpesa", "telecel_cash", "airteltigo_money", "afrimoney",
+    "qmoney", "tnm_mpamba", "emola", "zamtel_kwacha", "ezypesa", "halopesa", "tpesa",
+]
+"""Un réseau mobile money : le porte-monnaie que le client a dans sa poche, jamais l'intermédiaire
+qui fait passer le paiement. ``mixx`` = Mixx by Yas (ex-T-Money, Togocel), ``moov`` = Moov Money
+(Flooz au Togo). Ceux réellement ouverts, par pays : ``pay.get_payment_methods(country)``."""
+
+NETWORKS: Tuple[Network, ...] = (
+    "mixx", "moov", "mtn_momo", "orange_money", "wave", "airtel_money", "free_money", "celtiis_cash",
+    "djamo", "expresso", "wizall", "mobicash", "mpesa", "telecel_cash", "airteltigo_money", "afrimoney",
+    "qmoney", "tnm_mpamba", "emola", "zamtel_kwacha", "ezypesa", "halopesa", "tpesa",
+)
+"""Tous les réseaux mobile money (voir ``Network``), à énumérer."""
 
 _FINAL_STATUSES = ("completed", "amount_mismatch", "expired")
 
@@ -130,6 +149,11 @@ class Payment:
     customer_total: Optional[Number] = None
     #: Les frais du réseau de paiement dans ``customer_total``.
     processing_fee: Optional[Number] = None
+    #: Le réseau avec lequel le client a payé, une fois payé (``None`` avant, par carte, ou sur un
+    #: serveur ancien). Un réseau plus récent que ce SDK est gardé tel quel.
+    network: Optional[Network] = None
+    #: Les réseaux permis pour ce paiement, s'il les a restreints (``None`` sinon).
+    networks: Optional[List[Network]] = None
 
     @classmethod
     def from_api(cls, raw: Dict[str, Any]) -> "Payment":
@@ -160,6 +184,8 @@ class Payment:
             fees_paid_by=raw.get("fees_paid_by") or "partner",
             customer_total=raw.get("customer_total"),
             processing_fee=raw.get("processing_fee"),
+            network=raw.get("network"),
+            networks=list(raw["networks"]) if raw.get("networks") is not None else None,
         )
 
 
@@ -172,8 +198,8 @@ def _or(value: Any, default: Any) -> Any:
 class QuoteNetwork:
     """Un réseau du devis : ce que le client paie s'il paie avec lui."""
 
-    #: Code du réseau (ex. ``togocel``).
-    network: str
+    #: Le réseau (voir ``NETWORKS``), ex. ``mixx``. Un réseau plus récent que ce SDK est gardé tel quel.
+    network: Network
     #: Le nom que le client connaît (ex. « Mixx by Yas »).
     network_name: str
     #: Ce que le client paie, frais du réseau de paiement compris : le montant à afficher.
@@ -441,6 +467,51 @@ class FxCountry:
     rate_published_at: Optional[str]
     markup_pct: float
     estimated_conversion_cost_pct: Optional[float]
+
+
+@dataclass(frozen=True)
+class MethodSetting:
+    """Un moyen de paiement ouvert pour votre compte, et s'il est activé."""
+
+    method: PaymentMethod
+    enabled: bool
+
+
+@dataclass(frozen=True)
+class NetworkSetting:
+    """Un réseau ouvert pour votre compte, dans un pays, et s'il est activé (votre réglage)."""
+
+    network: Network
+    #: Le nom que le client connaît (ex. « Mixx by Yas »).
+    name: str
+    country: str
+    currency: Optional[str]
+    enabled: bool
+
+
+@dataclass(frozen=True)
+class PaymentMethods:
+    """Les moyens et réseaux ouverts pour votre compte, ce que vous avez activé, et votre ordre."""
+
+    methods: List[MethodSetting]
+    #: Réseaux ouverts, par pays, dans VOTRE ordre d'affichage.
+    networks: List[NetworkSetting]
+    network_order: List[Network]
+
+    @classmethod
+    def from_api(cls, raw: Any) -> "PaymentMethods":
+        raw = raw or {}
+        return cls(
+            methods=[MethodSetting(method=m.get("method"), enabled=bool(m.get("enabled"))) for m in raw.get("methods") or []],
+            networks=[
+                NetworkSetting(
+                    network=n.get("network"), name=n.get("name") or n.get("network"), country=n.get("country"),
+                    currency=n.get("currency"), enabled=bool(n.get("enabled")),
+                )
+                for n in raw.get("networks") or []
+            ],
+            network_order=list(raw.get("network_order") or []),
+        )
 
 
 @dataclass(frozen=True)

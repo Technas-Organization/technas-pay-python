@@ -13,7 +13,7 @@ Même API, mêmes règles que le SDK TypeScript `@technas/pay-next` : seuls les 
 ## Installer
 
 ```bash
-pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.9.0"
+pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.10.0"
 ```
 
 
@@ -33,6 +33,8 @@ Créez UNE instance au niveau du module (`pay = TechnasPay()`) : elle lit `TECHN
 | Faire payer une commande | `pay.ask_for_payment(amount=..., reference=retry_reference(order_id, attempt), customer={"email", "name"}, return_url=...)`, puis rediriger (303) vers `payment.checkout_url` |
 | Savoir combien le client paiera et combien vous recevrez, avant de créer le paiement | `pay.quote(amount=..., country=..., fees=?)` (ou `pay.get_fees`) → `customer_total` (à afficher au client), `processing_fee`, `commission`, `net_amount`, `networks` |
 | Faire payer TOUS les frais au client (vous recevez exactement `amount`) | `fees="customer"` dans `ask_for_payment` (ou réglage du compte) ; `"partner"` : le client paie `amount`, frais compris |
+| Lister les moyens et réseaux ouverts, ce qui est activé, l'ordre | `pay.get_payment_methods(country=?)` ; constantes `PAYMENT_METHODS`, `NETWORKS` (types `PaymentMethod`, `Network`) |
+| Activer / éteindre des moyens et réseaux, fixer l'ordre d'affichage | `pay.set_payment_methods(methods=?, networks=?, network_order=?)` ; par paiement : `networks=[...]` dans `ask_for_payment` |
 | Savoir qu'elle est payée | webhook, `WebhookHandlers(on_completed=...)` |
 | Rattraper un webhook manqué | `pay.get_payment_by_reference(reference)` |
 | Savoir si on peut relancer | `on_expired`, ou `can_retry(pay.get_payment(id))` |
@@ -205,6 +207,9 @@ Attrapez `TechnasPayError` et testez `error.code` (jamais le message). `error.re
 | `currency_not_enabled` | Devise non ouverte sur ce compte : contacter Technas |
 | `currency_conversion_unavailable` | Client hors zone CFA en mode `none` : ne pas proposer ce pays ; voir `get_fx_mode()` |
 | `country_not_allowed` | Le marchand ne vend pas dans ce pays : ne pas contourner |
+| `method_not_enabled` | Moyen éteint sur ce compte : ne pas le proposer ; voir `get_payment_methods()` |
+| `network_not_enabled` | Réseau éteint sur ce compte : ne pas le proposer ; voir `get_payment_methods()` |
+| `network_not_available` | Réseau pas ouvert dans ce pays : ne pas le proposer ; voir `get_payment_methods(country)` |
 | `country_not_available` | Pays pas prêt : `error.details.reason` |
 | `risk_not_accepted` | Montrer `error.details.risk` à l'utilisateur ; n'activer qu'avec son accord explicite |
 | `fx_mode_unavailable`, `fx_channel_unavailable` | `converted` pas ouvert : proposer `local` (avec accord) ou rester en `none` |

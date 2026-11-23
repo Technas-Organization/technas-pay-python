@@ -13,7 +13,7 @@ C'est la même API que le SDK TypeScript [`@technas/pay-next`](https://github.co
 ## 1. Installer
 
 ```bash
-pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.9.0"
+pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.10.0"
 ```
 
 Seule dépendance : `httpx`. Python 3.9 ou plus récent.
@@ -45,7 +45,7 @@ order.payment_id = payment.id
 
 En asynchrone (FastAPI…), même chose avec `AsyncTechnasPay` et `await`.
 
-Calculez le montant côté serveur. Ne passez pas `currency` si vous vendez en francs CFA : la devise suit le pays du client (`customer["country"]`), ou le client choisit son pays sur la page de paiement. Options : `currency`, `description`, `metadata` (4 Ko), `allowed_countries`, `excluded_countries`, `ask_country`, `fees`.
+Calculez le montant côté serveur. Ne passez pas `currency` si vous vendez en francs CFA : la devise suit le pays du client (`customer["country"]`), ou le client choisit son pays sur la page de paiement. Options : `currency`, `description`, `metadata` (4 Ko), `allowed_countries`, `excluded_countries`, `ask_country`, `fees`, `networks`.
 
 ### Qui paie les frais, et combien paie le client
 
@@ -76,6 +76,28 @@ p = pay.quote(amount=1000, country="TG", fees="partner")
 - L'opérateur du client (Mixx by Yas, Moov…) peut prendre ses propres frais sur le téléphone, en dehors de Technas : `networks[i].operator_fee_estimate` en donne une estimation quand on la connaît (« environ »), jamais une promesse.
 - Montant trop petit : `amount_too_low` avec `e.details.minimum_amount`. Au Togo, le réseau n'accepte rien sous 200 F : en `"partner"`, 209 F au minimum ; en `"customer"`, 200 F passent.
 - Par carte, seulement `"partner"` : ajouter des frais au paiement par carte d'un consommateur est interdit en Europe. `pay.quote(amount=20, method="card", currency="EUR")` rend la commission (`net_amount` `None` : les frais de la carte dépendent de la carte du client).
+
+### Les moyens et les réseaux : à vous de choisir
+
+Les moyens (`PAYMENT_METHODS` : `"mobile_money"`, `"card"`) et les réseaux mobile money (`NETWORKS` : `"mixx"` pour Mixx by Yas, `"moov"` pour Moov Money / Flooz, `"mtn_momo"`, `"orange_money"`, `"wave"`…) sont des listes fermées, typées (`PaymentMethod`, `Network`), à énumérer. Un réseau, c'est le porte-monnaie que le client a dans sa poche.
+
+```python
+from technas_pay import NETWORKS, PAYMENT_METHODS
+
+ouverts = pay.get_payment_methods("TG")
+# ouverts.networks : [NetworkSetting(network="mixx", name="Mixx by Yas", country="TG", enabled=True), …] dans VOTRE ordre
+
+# Réglage du compte : éteindre la carte, mettre Mixx en premier
+pay.set_payment_methods(methods=["mobile_money"], network_order=["mixx", "moov"])
+
+# Pour un paiement : seulement certains réseaux
+pay.ask_for_payment(amount=5000, reference=reference, customer=customer, return_url=return_url, networks=["mixx"])
+```
+
+- `set_payment_methods` : un champ non donné ne change pas ; `networks=None` = tous les réseaux. Une valeur hors de `PAYMENT_METHODS` / `NETWORKS` est refusée avant tout appel (`invalid_request`).
+- `payment.network` : le réseau avec lequel le client a payé (une fois payé) ; `payment.networks` : les réseaux permis pour ce paiement, s'il les a restreints.
+- Refus : `method_not_enabled` (moyen éteint sur votre compte), `network_not_enabled` (réseau éteint sur votre compte), `network_not_available` (pas ouvert dans ce pays).
+- La page de paiement Technas et les devis respectent vos réseaux et leur ordre. L'étape où le client confirme sur la page du réseau de paiement peut encore lui montrer tous les réseaux du pays : ce sera fermé dans une prochaine version.
 
 ## 3. Recevoir le webhook
 
@@ -137,6 +159,7 @@ Routes : `GET /methods?orderId=`, `POST /payments` `{orderId}`, `GET /payments/{
 | `get_refund(id)` | Statut d'un remboursement |
 | `top_up_balance(amount=, currency=, return_url=?)` | Recharger le solde (ouvrir `checkout_url`) |
 | `quote(amount=, country=?, network=?, currency=?, fees=?, method=?)`, `get_fees(...)` | Devis : ce que le client paiera, ce que vous recevrez (rien n'est créé) |
+| `get_payment_methods(country=?)`, `set_payment_methods(methods=?, networks=?, network_order=?)` | Moyens et réseaux ouverts, activés, et leur ordre ; les régler |
 | `get_balance()`, `get_settlements()` | Solde par devise, reversements |
 | `get_account_kyc()` | Seuil d'identité du compte (à montrer au marchand) |
 | `get_fx_mode()`, `set_fx_mode(mode=, accept_risk=, markup_pct=?)` | Clients hors zone franc CFA (option à risque) |

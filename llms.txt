@@ -16,6 +16,8 @@ Hors zone franc CFA : option `local` seulement, activée par l'utilisateur lui-m
 
 Frais : `fees="customer"` (le client paie frais du réseau + commission ; vous recevez exactement `amount`) ou `"partner"` (le client paie `amount`, frais compris). Devis avant paiement : `pay.quote(amount=..., country=..., fees=?)` / `pay.get_fees` → `customer_total` (à afficher), `processing_fee`, `commission`, `net_amount`, `networks` (dont `operator_fee_estimate`, « environ »). `amount_too_low` → `e.details.minimum_amount`. Carte : `"partner"` seulement.
 
+Moyens et réseaux : constantes `PAYMENT_METHODS` (`mobile_money`, `card`) et `NETWORKS` (`mixx`, `moov`, `mtn_momo`, `orange_money`, `wave`…), types `PaymentMethod`, `Network`. `pay.get_payment_methods(country=?)`, `pay.set_payment_methods(methods=?, networks=?, network_order=?)`, `networks=[...]` par paiement ; `payment.network` une fois payé. Refus : `method_not_enabled`, `network_not_enabled`, `network_not_available`.
+
 - [AGENTS.md](AGENTS.md) : règles pour un agent de code
 - [README.md](README.md) : guide complet
 - [src/technas_pay/client.py](src/technas_pay/client.py) : chaque méthode et sa docstring

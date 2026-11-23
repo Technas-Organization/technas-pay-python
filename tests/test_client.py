@@ -482,7 +482,7 @@ def test_frais_au_client_fees_envoye_seulement_s_il_est_donne_et_lu_avec_ses_def
 DEVIS = {
     "method": "mobile_money", "currency": "XOF", "country": "TG", "fees_paid_by": "customer",
     "amount": 200, "customer_amount": 205, "customer_total": 214, "processing_fee": 9, "commission": 5, "net_amount": 200,
-    "networks": [{"network": "togocel", "network_name": "Mixx by Yas", "customer_total": 214, "processing_fee": 9,
+    "networks": [{"network": "mixx", "network_name": "Mixx by Yas", "customer_total": 214, "processing_fee": 9,
                   "commission": 5, "net_amount": 200, "operator_fee_estimate": 10, "otp_required": False,
                   "otp_instructions": None}],
 }
@@ -504,7 +504,7 @@ def test_devis_quote_et_get_fees_envoient_le_montant_le_pays_et_le_mode_et_lisen
     n = q.networks[0]
     assert (n.network, n.network_name, n.customer_total, n.processing_fee, n.commission, n.net_amount,
             n.operator_fee_estimate, n.otp_required, n.otp_instructions) == (
-        "togocel", "Mixx by Yas", 214, 9, 5, 200, 10, False, None)
+        "mixx", "Mixx by Yas", 214, 9, 5, 200, 10, False, None)
     pay.get_fees(amount=1000, country="TG", network="togocel")
     assert json.loads(calls[1].content) == {"amount": 1000, "country": "TG", "network": "togocel"}
     carte = pay.quote(amount=20, method="card", currency="eur")
@@ -532,3 +532,81 @@ async def test_devis_avec_le_client_async():
         await pay.get_fees(amount=200, country="TG")
     assert calls[0].url.path == "/v1/quotes" and q.customer_total == 214 and q.networks[0].network_name == "Mixx by Yas"
     assert json.loads(calls[1].content) == {"amount": 200, "country": "TG"}
+
+
+MOYENS = {
+    "methods": [{"method": "mobile_money", "enabled": True}, {"method": "card", "enabled": False}],
+    "networks": [{"network": "mixx", "name": "Mixx by Yas", "country": "TG", "currency": "XOF", "enabled": True},
+                 {"network": "moov", "name": "Moov Money", "country": "TG", "currency": "XOF", "enabled": False}],
+    "network_order": ["mixx", "moov"],
+    "all_networks": ["mixx", "moov"],
+}
+
+
+def test_moyens_et_reseaux_enumerations_networks_par_paiement_reglages_lus_et_ecrits():
+    from technas_pay import NETWORKS, PAYMENT_METHODS
+
+    assert PAYMENT_METHODS == ("mobile_money", "card")
+    assert NETWORKS[:2] == ("mixx", "moov") and len(NETWORKS) == 23 and NETWORKS[-1] == "tpesa"
+    assert "togocel" not in NETWORKS
+    calls, handler = _sequence(
+        (201, {**PAYE, "id": "pay_2", "status": "pending", "networks": ["mixx", "moov"]}),
+        (201, {**PAYE, "id": "pay_3", "status": "pending"}),
+        (200, {**PAYE, "network": "mixx", "networks": None}),
+        (200, MOYENS), (200, MOYENS), (200, MOYENS), (200, MOYENS),
+    )
+    pay = TechnasPay(SECRET, base_url=BASE, http_client=httpx.Client(transport=httpx.MockTransport(handler)))
+    p = ask(pay, networks=["mixx", "moov"])
+    assert json.loads(calls[0].content)["networks"] == ["mixx", "moov"]
+    assert (p.network, p.networks) == (None, ["mixx", "moov"])
+    ask(pay, ref="cmd_1-2", networks=[])
+    assert "networks" not in json.loads(calls[1].content)
+    lu = pay.get_payment("pay_1")
+    assert (lu.network, lu.networks) == ("mixx", None)
+    m = pay.get_payment_methods("tg")
+    assert calls[3].method == "GET" and str(calls[3].url) == f"{BASE}/v1/payment-methods?country=TG"
+    assert [(x.method, x.enabled) for x in m.methods] == [("mobile_money", True), ("card", False)]
+    assert (m.networks[0].network, m.networks[0].name, m.networks[0].country, m.networks[0].currency, m.networks[1].enabled) == (
+        "mixx", "Mixx by Yas", "TG", "XOF", False)
+    assert m.network_order == ["mixx", "moov"]
+    pay.get_payment_methods()
+    assert str(calls[4].url) == f"{BASE}/v1/payment-methods"
+    pay.set_payment_methods(methods=["mobile_money"], network_order=["mixx", "moov"])
+    assert calls[5].method == "PUT" and calls[5].url.path == "/v1/payment-methods"
+    assert json.loads(calls[5].content) == {"methods": ["mobile_money"], "network_order": ["mixx", "moov"]}
+    pay.set_payment_methods(networks=None)
+    assert json.loads(calls[6].content) == {"networks": None}
+    for bad in ({"methods": ["cash"]}, {"networks": ["togocel"]}, {"network_order": ["mixx", "flooz"]}, {"networks": "mixx"}):
+        with pytest.raises(TechnasPayError) as e:
+            pay.set_payment_methods(**bad)
+        assert e.value.code == "invalid_request" and e.value.status == 0
+    with pytest.raises(TechnasPayError) as e:
+        ask(pay, ref="cmd_1-3", networks=["togocel"])
+    assert e.value.code == "invalid_request" and e.value.status == 0
+    assert len(calls) == 7
+
+
+def test_paiement_d_un_serveur_ancien_sans_reseau_et_reseau_inconnu_garde():
+    calls, handler = _sequence((200, PAYE), (200, {**DEVIS, "networks": [{**DEVIS["networks"][0], "network": "nouveau_reseau"}]}))
+    pay = TechnasPay(SECRET, base_url=BASE, http_client=httpx.Client(transport=httpx.MockTransport(handler)))
+    p = pay.get_payment("pay_1")
+    assert (p.network, p.networks) == (None, None)
+    assert pay.quote(amount=200, country="TG").networks[0].network == "nouveau_reseau"
+
+
+@pytest.mark.parametrize("code", ["method_not_enabled", "network_not_enabled", "network_not_available"])
+def test_refus_de_moyen_ou_de_reseau(code):
+    calls, handler = _sequence((422, {"code": code, "message": "refusé"}))
+    pay = TechnasPay(SECRET, base_url=BASE, http_client=httpx.Client(transport=httpx.MockTransport(handler)))
+    with pytest.raises(TechnasPayError) as e:
+        ask(pay, networks=["mixx"])
+    assert e.value.code == code and e.value.status == 422
+
+
+async def test_moyens_et_reseaux_avec_le_client_async():
+    calls, handler = _sequence((200, MOYENS), (200, MOYENS))
+    async with AsyncTechnasPay(SECRET, base_url=BASE, http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler))) as pay:
+        m = await pay.get_payment_methods("TG")
+        await pay.set_payment_methods(networks=["mixx"])
+    assert m.network_order == ["mixx", "moov"] and calls[0].url.path == "/v1/payment-methods"
+    assert json.loads(calls[1].content) == {"networks": ["mixx"]}
