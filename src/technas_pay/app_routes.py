@@ -196,7 +196,9 @@ class AppRoutes:
                 await _maybe(self._pay.cancel_payment(previous.id))
             except TechnasPayError as e:
                 # Serveur sans l'annulation (404, quel que soit le code) : essai suivant, comme avant.
-                if e.status != 404:
+                # Échoué, rien en cours, page encore ouverte jusqu'à son échéance : on ne la
+                # déclare pas close, essai suivant (deux pages payées = remboursement de l'essai en trop).
+                if e.status != 404 and e.code != "payment_failed_page_open":
                     raise
 
     async def handle(self, req: AppRequest) -> AppResponse:

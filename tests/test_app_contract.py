@@ -68,8 +68,8 @@ def _check(case, response, gw):
             assert call["query"].get(k) == v, k
 
 
-def test_le_contrat_a_31_cas():
-    assert len(CONTRACT["cases"]) == 31
+def test_le_contrat_a_32_cas():
+    assert len(CONTRACT["cases"]) == 32
 
 
 @pytest.mark.parametrize("case", CONTRACT["cases"], ids=[c["name"] for c in CONTRACT["cases"]])

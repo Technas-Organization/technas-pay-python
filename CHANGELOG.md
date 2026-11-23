@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.1 — 2026-11-23
+
+Un essai échoué ne bloque plus : `cancel_payment` peut répondre `payment_failed_page_open` (409, avec `expires_at`) quand l'essai a échoué, que rien n'est en cours chez l'opérateur, mais que sa page reste ouverte jusqu'à son échéance. Ne réessayez pas l'annulation : créez le nouvel essai. Avant, le serveur répondait `payment_in_progress` pendant une heure. Routes toutes faites : sur ce code, l'essai suivant est créé (deux pages payées = remboursement de l'essai en trop). Contrat v1 : 32 cas.
+
 ## 0.8.0 — 2026-11-19
 
 Avis de reversement : `settlement.completed` et `settlement.failed` (l'issue d'un reversement de votre solde vers votre numéro mobile money) ont leur fonction `on_settlement` et leur contenu typé `event.settlement` (`SettlementInfo` : `id`, `amount` ce qui a quitté le solde, `fee` frais du versement à votre charge, `net_amount` ce qui arrive sur le numéro, `currency`, `status` `completed` | `failed`, `created_at`). Sur `settlement.failed`, `amount` est recrédité sur votre solde. Un champ absent vaut `None`. Avant, ces deux avis étaient rendus sans contenu typé (`event.data` seul) et n'appelaient aucune fonction.
