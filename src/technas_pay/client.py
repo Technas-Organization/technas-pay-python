@@ -29,6 +29,7 @@ from .models import (
     CardAccount,
     CardOnboardingLink,
     CountryRules,
+    DisplayPrice,
     FxMode,
     NETWORKS,
     PAYMENT_METHODS,
@@ -40,6 +41,7 @@ from .models import (
     PayoutDestinationState,
     PayoutNetwork,
     Quote,
+    Rates,
     Refund,
     Settlement,
     TopUp,
@@ -295,6 +297,33 @@ class _Base:
         if fees is not None:
             body["fees"] = fees
         return _Call("POST", "/v1/quotes", body, Quote.from_api)
+
+    @staticmethod
+    def _display_price(
+        receive: Union[int, float],
+        country: Optional[str],
+        countries: Optional[Sequence[str]],
+        currency: Optional[str],
+        round_to: Optional[Union[int, float]],
+    ) -> _Call[DisplayPrice]:
+        _positive_amount(receive)
+        if isinstance(countries, str):
+            raise TechnasPayError("invalid_request", 'countries : une liste de pays (ex. ["TG", "BJ"])')
+        body: Dict[str, Any] = {"receive": receive}
+        if country and country.strip():
+            body["country"] = country.strip().upper()
+        if countries:
+            body["countries"] = [c.strip().upper() for c in countries]
+        if currency and currency.strip():
+            body["currency"] = currency.strip().upper()
+        if round_to:
+            body["round_to"] = round_to
+        return _Call("POST", "/v1/display-price", body, DisplayPrice.from_api)
+
+    @staticmethod
+    def _get_rates(country: Optional[str]) -> _Call[Rates]:
+        suffix = f"?{urlencode({'country': country.strip().upper()})}" if country and country.strip() else ""
+        return _Call("GET", f"/v1/rates{suffix}", None, Rates.from_api)
 
     @staticmethod
     def _get_payment(payment_id: str) -> _Call[Payment]:
@@ -695,6 +724,41 @@ class TechnasPay(_Base):
         """Même chose que ``quote`` : combien le client paiera, combien vous recevrez."""
         return self.quote(amount=amount, method=method, country=country, network=network, currency=currency, fees=fees)
 
+    def display_price(
+        self, *, receive: Union[int, float], country: Optional[str] = None, countries: Optional[Sequence[str]] = None,
+        currency: Optional[str] = None, round_to: Optional[Union[int, float]] = None,
+    ) -> DisplayPrice:
+        """Le prix affiché FIXE : le plus petit prix rond qui vous laisse au moins ``receive``, quel
+        que soit le réseau du client. Créez ensuite le paiement avec ce prix et ``fees="partner"``
+        (jamais ``"customer"`` : le client paierait le prix PLUS les frais).
+
+        ``country`` : un pays ; ``countries`` : plusieurs pays (un prix par pays dans ``by_country``,
+        un prix valable partout dans ``everywhere``, ``None`` si XOF et XAF sont mélangés) ;
+        ``currency`` : sans pays, ``XOF`` (défaut) ou ``XAF`` ; ``round_to`` : le pas du prix (défaut 50).
+
+        ``d = pay.display_price(receive=1000, countries=["TG", "BJ"], round_to=50)`` puis
+        ``pay.ask_for_payment(amount=d.by_country["TG"].price, fees="partner", ...)``.
+        Les frais propres de l'opérateur du client (hors Technas) ne sont pas comptés.
+        """
+        return self._run(self._display_price(receive, country, countries, currency, round_to))
+
+    def get_display_price(
+        self, *, receive: Union[int, float], country: Optional[str] = None, countries: Optional[Sequence[str]] = None,
+        currency: Optional[str] = None, round_to: Optional[Union[int, float]] = None,
+    ) -> DisplayPrice:
+        """Même chose que ``display_price``."""
+        return self.display_price(receive=receive, country=country, countries=countries, currency=currency, round_to=round_to)
+
+    def get_rates(self, country: Optional[str] = None) -> Rates:
+        """La grille des frais, par pays ouvert et par réseau : pourcentage, paliers, minimum,
+        commission Technas, estimation des frais de l'opérateur, et un exemple à 1 000 dans chaque
+        mode (``example_1000.customer`` / ``.partner``). ``country`` facultatif."""
+        return self._run(self._get_rates(country))
+
+    def rates(self, country: Optional[str] = None) -> Rates:
+        """Même chose que ``get_rates``."""
+        return self.get_rates(country)
+
     def get_balance(self) -> List[Balance]:
         return self._run(self._get_balance())
 
@@ -854,6 +918,28 @@ class AsyncTechnasPay(_Base):
     ) -> Quote:
         """Même chose que ``quote``."""
         return await self.quote(amount=amount, method=method, country=country, network=network, currency=currency, fees=fees)
+
+    async def display_price(
+        self, *, receive: Union[int, float], country: Optional[str] = None, countries: Optional[Sequence[str]] = None,
+        currency: Optional[str] = None, round_to: Optional[Union[int, float]] = None,
+    ) -> DisplayPrice:
+        """Voir ``TechnasPay.display_price`` : le paiement se crée ensuite en ``fees="partner"``."""
+        return await self._run(self._display_price(receive, country, countries, currency, round_to))
+
+    async def get_display_price(
+        self, *, receive: Union[int, float], country: Optional[str] = None, countries: Optional[Sequence[str]] = None,
+        currency: Optional[str] = None, round_to: Optional[Union[int, float]] = None,
+    ) -> DisplayPrice:
+        """Même chose que ``display_price``."""
+        return await self.display_price(receive=receive, country=country, countries=countries, currency=currency, round_to=round_to)
+
+    async def get_rates(self, country: Optional[str] = None) -> Rates:
+        """Voir ``TechnasPay.get_rates``."""
+        return await self._run(self._get_rates(country))
+
+    async def rates(self, country: Optional[str] = None) -> Rates:
+        """Même chose que ``get_rates``."""
+        return await self.get_rates(country)
 
     async def get_balance(self) -> List[Balance]:
         return await self._run(self._get_balance())

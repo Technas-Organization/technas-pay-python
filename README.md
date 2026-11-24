@@ -13,7 +13,7 @@ C'est la même API que le SDK TypeScript [`@technas/pay-next`](https://github.co
 ## 1. Installer
 
 ```bash
-pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.10.0"
+pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.11.0"
 ```
 
 Seule dépendance : `httpx`. Python 3.9 ou plus récent.
@@ -76,6 +76,46 @@ p = pay.quote(amount=1000, country="TG", fees="partner")
 - L'opérateur du client (Mixx by Yas, Moov…) peut prendre ses propres frais sur le téléphone, en dehors de Technas : `networks[i].operator_fee_estimate` en donne une estimation quand on la connaît (« environ »), jamais une promesse.
 - Montant trop petit : `amount_too_low` avec `e.details.minimum_amount`. Au Togo, le réseau n'accepte rien sous 200 F : en `"partner"`, 209 F au minimum ; en `"customer"`, 200 F passent.
 - Par carte, seulement `"partner"` : ajouter des frais au paiement par carte d'un consommateur est interdit en Europe. `pay.quote(amount=20, method="card", currency="EUR")` rend la commission (`net_amount` `None` : les frais de la carte dépendent de la carte du client).
+
+### Un prix affiché fixe, le même pour tous les clients
+
+Vous voulez recevoir 1 000 F et toujours afficher le même prix rond, quel que soit l'opérateur du client ? Demandez ce prix, puis créez le paiement en **`fees="partner"`** :
+
+```python
+d = pay.display_price(receive=1000, countries=["TG", "BJ"], round_to=50)
+d.by_country["TG"].price         # le prix à afficher au Togo
+d.by_country["BJ"].price         # au Bénin
+d.everywhere.price               # un seul prix valable dans les deux pays (si d.everywhere n'est pas None)
+d.by_country["TG"].worst_network # le réseau qui vous laisse le moins (au moins 1 000)
+
+pay.ask_for_payment(
+    amount=d.by_country["TG"].price,  # le client paie EXACTEMENT ce prix
+    fees="partner",                   # pas "customer" !
+    reference="commande-42",
+    return_url="https://boutique.example/merci",
+    customer={"email": "awa@example.com", "name": "Awa", "country": "TG"},
+)
+```
+
+- Le prix est le plus petit multiple de `round_to` (50 par défaut) qui vous laisse au moins `receive` sur **chaque** réseau ouvert du pays. Ce qui dépasse vous reste.
+- ⚠️ Avec `fees="customer"`, le client paierait votre prix **plus** les frais : un prix fixe se paie toujours en `"partner"`.
+- `everywhere` est `None` si vous mélangez des pays en XOF et en XAF (deux monnaies, deux prix).
+- Les frais propres de l'opérateur du client (prélevés sur son téléphone, hors Technas) ne sont pas comptés.
+- `pay.get_display_price(...)` est le même appel. Sans pays : `currency="XOF"` (défaut) ou `"XAF"`. En asynchrone : `await pay.display_price(...)`.
+
+### La grille des frais, pays par pays
+
+Pour votre back-office : par pays ouvert et par réseau, le pourcentage, le minimum, la commission Technas, l'estimation des frais de l'opérateur et un exemple à 1 000 F dans chaque mode.
+
+```python
+g = pay.get_rates()          # ou pay.get_rates("TG"), ou pay.rates()
+for c in g.countries:
+    for n in c.networks:
+        client = n.example_1000.customer
+        vous = n.example_1000.partner
+        print(c.country, n.network_name, f"{n.percent} %", "min", n.minimum_amount,
+              "client paie", client and client.customer_total, "vous recevez (partner)", vous and vous.net_amount)
+```
 
 ### Les moyens et les réseaux : à vous de choisir
 
@@ -159,6 +199,8 @@ Routes : `GET /methods?orderId=`, `POST /payments` `{orderId}`, `GET /payments/{
 | `get_refund(id)` | Statut d'un remboursement |
 | `top_up_balance(amount=, currency=, return_url=?)` | Recharger le solde (ouvrir `checkout_url`) |
 | `quote(amount=, country=?, network=?, currency=?, fees=?, method=?)`, `get_fees(...)` | Devis : ce que le client paiera, ce que vous recevrez (rien n'est créé) |
+| `display_price(receive=, country=?, countries=?, currency=?, round_to=?)`, `get_display_price(...)` | Prix affiché fixe (par pays, et partout) pour recevoir au moins `receive` ; payer ensuite en `fees="partner"` |
+| `get_rates(country=?)`, `rates(...)` | Grille des frais par pays et réseau, exemples à 1 000 |
 | `get_payment_methods(country=?)`, `set_payment_methods(methods=?, networks=?, network_order=?)` | Moyens et réseaux ouverts, activés, et leur ordre ; les régler |
 | `get_balance()`, `get_settlements()` | Solde par devise, reversements |
 | `get_account_kyc()` | Seuil d'identité du compte (à montrer au marchand) |

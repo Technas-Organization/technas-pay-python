@@ -275,6 +275,216 @@ class Quote:
         )
 
 
+@dataclass(frozen=True)
+class DisplayPriceNetwork:
+    """Ce que vous recevez, réseau par réseau, au prix affiché."""
+
+    country: Optional[str]
+    #: Le réseau (voir ``NETWORKS``). Un réseau plus récent que ce SDK est gardé tel quel.
+    network: Network
+    #: Le nom que le client connaît (ex. « Mixx by Yas »).
+    network_name: str
+    #: Ce que le client paie : jamais plus que le prix affiché.
+    customer_total: Number
+    processing_fee: Number
+    commission: Number
+    #: Ce que vous recevez (au moins ``receive``).
+    net_amount: Number
+    #: Frais propres de l'opérateur du client, hors Technas : « environ », ``None`` = inconnus.
+    operator_fee_estimate: Optional[Number]
+
+    @classmethod
+    def from_api(cls, raw: Dict[str, Any]) -> "DisplayPriceNetwork":
+        raw = raw or {}
+        return cls(
+            country=raw.get("country"),
+            network=raw.get("network"),
+            network_name=raw.get("network_name") or raw.get("network"),
+            customer_total=raw.get("customer_total"),
+            processing_fee=raw.get("processing_fee"),
+            commission=raw.get("commission"),
+            net_amount=raw.get("net_amount"),
+            operator_fee_estimate=raw.get("operator_fee_estimate"),
+        )
+
+
+@dataclass(frozen=True)
+class DisplayPriceForCountry:
+    """Un prix affiché, avec le réseau qui vous laisse le moins."""
+
+    price: Number
+    currency: Optional[str]
+    worst_network: DisplayPriceNetwork
+    net_by_network: List[DisplayPriceNetwork] = field(default_factory=list)
+
+    @classmethod
+    def from_api(cls, raw: Dict[str, Any]) -> "DisplayPriceForCountry":
+        raw = raw or {}
+        return cls(
+            price=raw.get("price"),
+            currency=raw.get("currency"),
+            worst_network=DisplayPriceNetwork.from_api(raw.get("worst_network")),
+            net_by_network=[DisplayPriceNetwork.from_api(n) for n in raw.get("net_by_network") or []],
+        )
+
+
+@dataclass(frozen=True)
+class DisplayPrice:
+    """Le prix rond à afficher pour recevoir au moins ``receive``, quel que soit le réseau du client
+    (``display_price``). Créez ensuite le paiement avec ``amount=price`` et ``fees="partner"`` : le
+    client paie exactement ce prix, et le surplus vous reste."""
+
+    price: Number
+    currency: Optional[str]
+    worst_network: DisplayPriceNetwork
+    net_by_network: List[DisplayPriceNetwork]
+    #: Toujours ``partner`` : un prix affiché fixe se paie en « vous payez les frais ».
+    fees_paid_by: Literal["partner"]
+    receive: Number
+    round_to: Number
+    countries: List[str]
+    #: Un prix par pays (avec ``country`` ou ``countries``).
+    by_country: Dict[str, DisplayPriceForCountry]
+    #: Un seul prix valable dans tous ces pays ; ``None`` si XOF et XAF sont mélangés.
+    everywhere: Optional[DisplayPriceForCountry]
+
+    @classmethod
+    def from_api(cls, raw: Dict[str, Any]) -> "DisplayPrice":
+        raw = raw or {}
+        top = DisplayPriceForCountry.from_api(raw)
+        return cls(
+            price=top.price,
+            currency=top.currency,
+            worst_network=top.worst_network,
+            net_by_network=top.net_by_network,
+            fees_paid_by="partner",
+            receive=raw.get("receive"),
+            round_to=raw.get("round_to"),
+            countries=list(raw.get("countries") or []),
+            by_country={pays: DisplayPriceForCountry.from_api(v) for pays, v in (raw.get("by_country") or {}).items()},
+            everywhere=DisplayPriceForCountry.from_api(raw["everywhere"]) if raw.get("everywhere") else None,
+        )
+
+
+@dataclass(frozen=True)
+class FeeTier:
+    """Un palier de la grille du réseau de paiement."""
+
+    min_amount: Number
+    #: ``None`` : sans plafond.
+    max_amount: Optional[Number]
+    percent: Number
+    fixed: Number
+
+
+@dataclass(frozen=True)
+class RateExample:
+    """Un exemple à 1 000 dans un mode de frais."""
+
+    customer_total: Number
+    processing_fee: Number
+    commission: Number
+    net_amount: Number
+
+    @classmethod
+    def from_api(cls, raw: Any) -> "Optional[RateExample]":
+        if not raw:
+            return None
+        return cls(
+            customer_total=raw.get("customer_total"),
+            processing_fee=raw.get("processing_fee"),
+            commission=raw.get("commission"),
+            net_amount=raw.get("net_amount"),
+        )
+
+
+@dataclass(frozen=True)
+class RateExamples:
+    """L'exemple à 1 000 dans chaque mode (``None`` : pas payable dans ce mode)."""
+
+    customer: Optional[RateExample]
+    partner: Optional[RateExample]
+
+
+@dataclass(frozen=True)
+class RateCommission:
+    """La commission Technas."""
+
+    percent: Number
+    fixed: Number
+
+
+@dataclass(frozen=True)
+class RateNetwork:
+    """Un réseau de la grille des frais."""
+
+    network: Network
+    network_name: str
+    #: Pourcentage du réseau de paiement (palier de 1 000).
+    percent: Number
+    fixed: Number
+    fee_tiers: List[FeeTier]
+    #: Le plus petit montant que le réseau accepte.
+    minimum_amount: Optional[Number]
+    #: Frais propres de l'opérateur du client sur 1 000, hors Technas : « environ », ``None`` = inconnus.
+    operator_fee_estimate: Optional[Number]
+    #: Exemple à 1 000, dans chaque mode.
+    example_1000: RateExamples
+
+
+@dataclass(frozen=True)
+class RateCountry:
+    """Un pays de la grille des frais."""
+
+    country: str
+    currency: str
+    commission: RateCommission
+    networks: List[RateNetwork]
+
+
+@dataclass(frozen=True)
+class Rates:
+    """La grille des frais, par pays ouvert et par réseau (``get_rates``)."""
+
+    #: Le mode de votre compte : ``partner`` ou ``customer``.
+    fees_paid_by: str
+    countries: List[RateCountry]
+
+    @classmethod
+    def from_api(cls, raw: Any) -> "Rates":
+        raw = raw or {}
+        countries = []
+        for c in raw.get("countries") or []:
+            com = c.get("commission") or {}
+            networks = []
+            for n in c.get("networks") or []:
+                ex = n.get("example_1000") or {}
+                networks.append(RateNetwork(
+                    network=n.get("network"),
+                    network_name=n.get("network_name") or n.get("network"),
+                    percent=n.get("percent"),
+                    fixed=_or(n.get("fixed"), 0),
+                    fee_tiers=[
+                        FeeTier(min_amount=t.get("min_amount"), max_amount=t.get("max_amount"),
+                                percent=t.get("percent"), fixed=_or(t.get("fixed"), 0))
+                        for t in n.get("fee_tiers") or []
+                    ],
+                    minimum_amount=n.get("minimum_amount"),
+                    operator_fee_estimate=n.get("operator_fee_estimate"),
+                    example_1000=RateExamples(
+                        customer=RateExample.from_api(ex.get("customer")),
+                        partner=RateExample.from_api(ex.get("partner")),
+                    ),
+                ))
+            countries.append(RateCountry(
+                country=c.get("country"),
+                currency=c.get("currency"),
+                commission=RateCommission(percent=_or(com.get("percent"), 0), fixed=_or(com.get("fixed"), 0)),
+                networks=networks,
+            ))
+        return cls(fees_paid_by=raw.get("fees_paid_by") or "partner", countries=countries)
+
+
 def to_app_json(payment: "Payment") -> Dict[str, Any]:
     """Ce que VOTRE backend renvoie à votre app (``{"payment": to_app_json(p)}``) : ni commission,
     ni montant net, ni métadonnées. C'est le contrat que lit ``technas_pay_flutter``."""

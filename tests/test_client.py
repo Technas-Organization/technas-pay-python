@@ -610,3 +610,90 @@ async def test_moyens_et_reseaux_avec_le_client_async():
         await pay.set_payment_methods(networks=["mixx"])
     assert m.network_order == ["mixx", "moov"] and calls[0].url.path == "/v1/payment-methods"
     assert json.loads(calls[1].content) == {"networks": ["mixx"]}
+
+
+def _ligne(pays, reseau, net):
+    return {"country": pays, "network": reseau, "network_name": reseau, "customer_total": 1100, "processing_fee": 44,
+            "commission": 22, "net_amount": net, "operator_fee_estimate": None}
+
+
+PRIX_TG = {"price": 1100, "worst_network": _ligne("TG", "mixx", 1034), "net_by_network": [_ligne("TG", "mixx", 1034)], "currency": "XOF"}
+PRIX_BJ = {"price": 1150, "worst_network": _ligne("BJ", "mtn_momo", 1010), "net_by_network": [_ligne("BJ", "mtn_momo", 1010)],
+           "currency": "XOF"}
+PRIX_AFFICHE = {**PRIX_BJ, "fees_paid_by": "partner", "receive": 1000, "round_to": 50, "countries": ["TG", "BJ"],
+                "by_country": {"TG": PRIX_TG, "BJ": PRIX_BJ}, "everywhere": PRIX_BJ,
+                "how_to_use": "…", "operator_fee_note": "…"}
+
+
+def test_prix_affiche_display_price_envoie_receive_pays_et_pas_et_lit_un_prix_par_pays_et_partout():
+    from technas_pay import DisplayPriceNetwork
+
+    calls, handler = _sequence((200, PRIX_AFFICHE), (200, {**PRIX_TG, "fees_paid_by": "partner", "receive": 1000,
+                                                           "round_to": 50, "countries": ["TG"], "by_country": {"TG": PRIX_TG},
+                                                           "everywhere": None}))
+    pay = TechnasPay(SECRET, base_url=BASE, http_client=httpx.Client(transport=httpx.MockTransport(handler)))
+    d = pay.display_price(receive=1000, countries=["tg", "BJ"], round_to=50)
+    assert calls[0].method == "POST" and str(calls[0].url) == f"{BASE}/v1/display-price"
+    assert json.loads(calls[0].content) == {"receive": 1000, "countries": ["TG", "BJ"], "round_to": 50}
+    assert (d.price, d.fees_paid_by, d.by_country["TG"].price, d.by_country["BJ"].price, d.everywhere.price) == (
+        1150, "partner", 1100, 1150, 1150)
+    assert (d.receive, d.round_to, d.countries, d.currency) == (1000, 50, ["TG", "BJ"], "XOF")
+    assert d.worst_network == DisplayPriceNetwork(
+        country="BJ", network="mtn_momo", network_name="mtn_momo", customer_total=1100, processing_fee=44,
+        commission=22, net_amount=1010, operator_fee_estimate=None)
+    assert d.by_country["TG"].net_by_network[0].net_amount == 1034
+    seul = pay.get_display_price(receive=1000, country="TG")
+    assert json.loads(calls[1].content) == {"receive": 1000, "country": "TG"}
+    assert seul.everywhere is None and seul.price == 1100
+    for bad in ({"receive": 0}, {"receive": 1000, "countries": "TG"}):
+        with pytest.raises(TechnasPayError) as e:
+            pay.display_price(**bad)
+        assert e.value.status == 0
+    assert len(calls) == 2
+
+
+GRILLE = {"fees_paid_by": "customer", "countries": [{
+    "country": "TG", "currency": "XOF", "commission": {"percent": 2, "fixed": 0},
+    "networks": [{"network": "mixx", "network_name": "Mixx by Yas", "percent": 4.1, "fixed": 0,
+                  "fee_tiers": [{"min_amount": 200, "max_amount": 100000000, "percent": 4.1, "fixed": 0},
+                                {"min_amount": 100000001, "max_amount": None, "percent": 3, "fixed": 0}],
+                  "minimum_amount": 200, "operator_fee_estimate": 10, "example_1000": {
+                      "customer": {"customer_total": 1064, "processing_fee": 44, "commission": 20, "net_amount": 1000},
+                      "partner": {"customer_total": 1000, "processing_fee": 40, "commission": 20, "net_amount": 940}}},
+                 {"network": "moov", "network_name": "Moov Money", "percent": 4.5,
+                  "example_1000": {"customer": None, "partner": None}}]}],
+    "note": "…"}
+
+
+def test_grille_des_frais_get_rates_et_rates_lisent_pays_reseaux_commission_et_exemples():
+    from technas_pay import FeeTier, RateExample
+
+    calls, handler = _sequence((200, GRILLE), (200, GRILLE))
+    pay = TechnasPay(SECRET, base_url=BASE, http_client=httpx.Client(transport=httpx.MockTransport(handler)))
+    g = pay.get_rates("tg")
+    assert calls[0].method == "GET" and str(calls[0].url) == f"{BASE}/v1/rates?country=TG"
+    tg = g.countries[0]
+    mixx, moov = tg.networks
+    assert (g.fees_paid_by, tg.country, tg.currency, tg.commission.percent, mixx.percent, mixx.minimum_amount,
+            mixx.operator_fee_estimate, mixx.network_name) == ("customer", "TG", "XOF", 2, 4.1, 200, 10, "Mixx by Yas")
+    assert mixx.example_1000.partner == RateExample(customer_total=1000, processing_fee=40, commission=20, net_amount=940)
+    assert mixx.example_1000.customer.customer_total == 1064
+    assert mixx.fee_tiers == [FeeTier(min_amount=200, max_amount=100000000, percent=4.1, fixed=0),
+                              FeeTier(min_amount=100000001, max_amount=None, percent=3, fixed=0)]
+    assert (moov.fixed, moov.fee_tiers, moov.minimum_amount, moov.example_1000.customer, moov.example_1000.partner) == (
+        0, [], None, None, None)
+    pay.rates()
+    assert str(calls[1].url) == f"{BASE}/v1/rates"
+
+
+async def test_prix_affiche_et_grille_avec_le_client_async():
+    calls, handler = _sequence((200, PRIX_AFFICHE), (200, PRIX_AFFICHE), (200, GRILLE), (200, GRILLE))
+    async with AsyncTechnasPay(SECRET, base_url=BASE, http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler))) as pay:
+        d = await pay.display_price(receive=1000, countries=["TG", "BJ"])
+        await pay.get_display_price(receive=1000, currency="xaf", round_to=100)
+        g = await pay.get_rates("TG")
+        await pay.rates()
+    assert d.everywhere.price == 1150 and calls[0].url.path == "/v1/display-price"
+    assert json.loads(calls[1].content) == {"receive": 1000, "currency": "XAF", "round_to": 100}
+    assert g.countries[0].networks[0].network == "mixx" and str(calls[2].url).endswith("/v1/rates?country=TG")
+    assert calls[3].url.path == "/v1/rates" and not calls[3].url.query

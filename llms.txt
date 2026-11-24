@@ -15,6 +15,7 @@ Reversements : avis `settlement.completed` et `settlement.failed` dans `on_settl
 Hors zone franc CFA : option `local` seulement, activée par l'utilisateur lui-même après avoir lu le risque (`get_fx_mode().risks["local"]`, puis `set_fx_mode(mode="local", accept_risk=True)`). `converted` n'est pas ouvert (`fx_mode_unavailable`).
 
 Frais : `fees="customer"` (le client paie frais du réseau + commission ; vous recevez exactement `amount`) ou `"partner"` (le client paie `amount`, frais compris). Devis avant paiement : `pay.quote(amount=..., country=..., fees=?)` / `pay.get_fees` → `customer_total` (à afficher), `processing_fee`, `commission`, `net_amount`, `networks` (dont `operator_fee_estimate`, « environ »). `amount_too_low` → `e.details.minimum_amount`. Carte : `"partner"` seulement.
+Prix affiché fixe : `pay.display_price(receive=..., countries=?, round_to=?)` → `by_country[pays].price`, `everywhere.price`, `worst_network` ; créer ensuite le paiement avec `amount=price, fees="partner"` (en `"customer"`, le client paierait prix + frais). Grille des frais : `pay.get_rates(country=?)` / `pay.rates`.
 
 Moyens et réseaux : constantes `PAYMENT_METHODS` (`mobile_money`, `card`) et `NETWORKS` (`mixx`, `moov`, `mtn_momo`, `orange_money`, `wave`…), types `PaymentMethod`, `Network`. `pay.get_payment_methods(country=?)`, `pay.set_payment_methods(methods=?, networks=?, network_order=?)`, `networks=[...]` par paiement ; `payment.network` une fois payé. Refus : `method_not_enabled`, `network_not_enabled`, `network_not_available`.
 

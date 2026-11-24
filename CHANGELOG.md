@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.0 — 2026-11-24
+
+Un prix affiché fixe, et la grille des frais :
+- `pay.display_price(receive=, country=? | countries=?, currency=?, round_to=?)` (ou `get_display_price`) → `DisplayPrice` : le plus petit prix rond qui vous laisse au moins `receive` sur chaque réseau ; `by_country` (un prix par pays), `everywhere` (un prix valable partout, `None` si XOF et XAF sont mélangés), `worst_network`, `net_by_network` (`DisplayPriceNetwork`). Le paiement se crée ensuite en `fees="partner"` ;
+- `pay.get_rates(country=None)` (ou `rates`) → `Rates` : par pays et par réseau, pourcentage, paliers (`FeeTier`), minimum, commission Technas, estimation des frais de l'opérateur, exemple à 1 000 dans chaque mode (`example_1000.customer` / `.partner`) ;
+- mêmes méthodes sur `AsyncTechnasPay`.
+
 ## 0.10.0 — 2026-11-23
 
 Les moyens et les réseaux, en listes fermées et typées :

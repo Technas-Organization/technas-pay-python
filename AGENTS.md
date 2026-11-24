@@ -13,7 +13,7 @@ Même API, mêmes règles que le SDK TypeScript `@technas/pay-next` : seuls les 
 ## Installer
 
 ```bash
-pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.10.0"
+pip install "technas-pay @ git+https://github.com/Technas-Organization/technas-pay-python@v0.11.0"
 ```
 
 
@@ -32,6 +32,8 @@ Créez UNE instance au niveau du module (`pay = TechnasPay()`) : elle lit `TECHN
 |---|---|
 | Faire payer une commande | `pay.ask_for_payment(amount=..., reference=retry_reference(order_id, attempt), customer={"email", "name"}, return_url=...)`, puis rediriger (303) vers `payment.checkout_url` |
 | Savoir combien le client paiera et combien vous recevrez, avant de créer le paiement | `pay.quote(amount=..., country=..., fees=?)` (ou `pay.get_fees`) → `customer_total` (à afficher au client), `processing_fee`, `commission`, `net_amount`, `networks` |
+| Afficher un prix FIXE (le même quel que soit le réseau) et recevoir au moins X | `pay.display_price(receive=..., country=? \| countries=[...], round_to=?)` → `by_country[pays].price`, `everywhere.price` ; puis `ask_for_payment(amount=price, fees="partner")` (jamais `"customer"`) |
+| La grille des frais par pays et réseau (back-office) | `pay.get_rates(country=?)` (ou `pay.rates`) → `countries[].networks[]` : `percent`, `minimum_amount`, `commission`, `operator_fee_estimate`, `example_1000.customer/partner` |
 | Faire payer TOUS les frais au client (vous recevez exactement `amount`) | `fees="customer"` dans `ask_for_payment` (ou réglage du compte) ; `"partner"` : le client paie `amount`, frais compris |
 | Lister les moyens et réseaux ouverts, ce qui est activé, l'ordre | `pay.get_payment_methods(country=?)` ; constantes `PAYMENT_METHODS`, `NETWORKS` (types `PaymentMethod`, `Network`) |
 | Activer / éteindre des moyens et réseaux, fixer l'ordre d'affichage | `pay.set_payment_methods(methods=?, networks=?, network_order=?)` ; par paiement : `networks=[...]` dans `ask_for_payment` |
