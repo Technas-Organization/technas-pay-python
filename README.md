@@ -73,7 +73,7 @@ p = pay.quote(amount=1000, country="TG", fees="partner")
 - `pay.get_fees(...)` est le même appel que `pay.quote(...)`. Rien n'est créé. En asynchrone : `await pay.quote(...)`.
 - Un paiement créé ensuite avec le même montant, le même pays et le même `fees` porte les mêmes montants : `payment.customer_total`, `payment.processing_fee`, `payment.net_amount`. `payment.amount` reste votre prix.
 - Les frais du réseau de paiement suivent la grille du réseau. Le client choisit son réseau sur la page de paiement : `customer_total` est le plus haut des réseaux possibles, `networks[i].customer_total` le montant exact de chacun.
-- L'opérateur du client (Mixx by Yas, Moov…) peut prendre ses propres frais sur le téléphone, en dehors de Technas : `networks[i].operator_fee_estimate` en donne une estimation quand on la connaît (« environ »), jamais une promesse.
+- La demande affichée sur le téléphone du client peut dépasser le montant payé : la chaîne de paiement mobile y ajoute parfois ses frais (au Togo, 209 F demandés pour 200 F payés, le 25/11/2026 ; l'opérateur, lui, n'y prend rien). `networks[i].operator_fee_estimate` donne ce surplus quand on l'a relevé (« environ »), jamais une promesse ; vide quand on ne le connaît pas.
 - Montant trop petit : `amount_too_low` avec `e.details.minimum_amount`. Au Togo, le réseau n'accepte rien sous 200 F : en `"partner"`, 209 F au minimum ; en `"customer"`, 200 F passent.
 - Par carte, seulement `"partner"` : ajouter des frais au paiement par carte d'un consommateur est interdit en Europe. `pay.quote(amount=20, method="card", currency="EUR")` rend la commission (`net_amount` `None` : les frais de la carte dépendent de la carte du client).
 
@@ -89,7 +89,7 @@ d.everywhere.price               # un seul prix valable dans les deux pays (si d
 d.by_country["TG"].worst_network # le réseau qui vous laisse le moins (au moins 1 000)
 
 pay.ask_for_payment(
-    amount=d.by_country["TG"].price,  # le client paie EXACTEMENT ce prix
+    amount=d.by_country["TG"].price,  # le prix affiché (voir ⚠️ plus bas)
     fees="partner",                   # pas "customer" !
     reference="commande-42",
     return_url="https://boutique.example/merci",
@@ -100,7 +100,7 @@ pay.ask_for_payment(
 - Le prix est le plus petit multiple de `round_to` (50 par défaut) qui vous laisse au moins `receive` sur **chaque** réseau ouvert du pays. Ce qui dépasse vous reste.
 - ⚠️ Avec `fees="customer"`, le client paierait votre prix **plus** les frais : un prix fixe se paie toujours en `"partner"`.
 - `everywhere` est `None` si vous mélangez des pays en XOF et en XAF (deux monnaies, deux prix).
-- Les frais propres de l'opérateur du client (prélevés sur son téléphone, hors Technas) ne sont pas comptés.
+- ⚠️ Pas encore un prix fixe sur tous les réseaux : là où la demande sur le téléphone ajoute des frais (Mixx au Togo aujourd'hui), le client voit un peu plus que le prix affiché ; l'estimation par réseau du devis le dit. Nous travaillons à le supprimer.
 - `pay.get_display_price(...)` est le même appel. Sans pays : `currency="XOF"` (défaut) ou `"XAF"`. En asynchrone : `await pay.display_price(...)`.
 
 ### La grille des frais, pays par pays
